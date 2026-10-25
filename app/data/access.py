@@ -110,6 +110,18 @@ def spot_minute_bars(stock_or_name: str, days: list[date]) -> pd.DataFrame:
     return df[["datetime", *PRICE_COLS]].reset_index(drop=True)
 
 
+def future_minute_bars(stock_or_name: str, expiry: date, days: list[date]) -> pd.DataFrame:
+    u = underlying(stock_or_name)
+    days = sorted(set(days))
+    _ensure("fut", u.name, days, expiry=expiry)
+    df = get_store().df(
+        """SELECT ts AS datetime, open, high, low, close FROM fut_1m
+           WHERE underlying = ? AND expiry = ? AND CAST(ts AS DATE) IN (SELECT UNNEST(?)) ORDER BY ts""",
+        [u.name, expiry, days],
+    )
+    return df[["datetime", *PRICE_COLS]].reset_index(drop=True)
+
+
 def resample(df: pd.DataFrame, minutes: int) -> pd.DataFrame:
     """1-minute candles → N-minute candles labelled by their start (09:15, 09:20, …), like Breeze's."""
     if minutes == 1 or df.empty:
@@ -120,4 +132,4 @@ def resample(df: pd.DataFrame, minutes: int) -> pd.DataFrame:
     return out.reset_index()
 
 
-__all__ = ["option_minute_bars", "spot_minute_bars", "resample", "fetch_range", "store_range", "DONE", "NO_EXPIRY"]
+__all__ = ["option_minute_bars", "spot_minute_bars", "future_minute_bars", "resample", "fetch_range", "store_range", "DONE", "NO_EXPIRY"]

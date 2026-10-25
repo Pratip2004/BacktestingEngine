@@ -27,6 +27,9 @@ import AccountPage from "./pages/AccountPage";
 import BacktestPage from "./pages/BacktestPage";
 import BacktestHub, { BacktestIndex, RedirectKeepQuery } from "./pages/BacktestHub";
 import DataPage from "./pages/DataPage";
+import BuilderPage from "./pages/BuilderPage";
+import StrategiesPage from "./pages/StrategiesPage";
+import ComparePage from "./pages/ComparePage";
 
 const { Sider, Header, Content } = Layout;
 const { Text } = Typography;
@@ -176,7 +179,7 @@ export default function App() {
             <span className="flex-1 text-[13px]">Search pages, actions, saved runs…</span>
             <kbd className="rounded border border-slate-200 bg-white px-1.5 text-[11px] font-medium text-slate-500">{isMac ? "⌘" : "Ctrl"} K</kbd>
           </button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate("/backtest/straddle")}>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate("/backtest/strategies")}>
             New backtest
           </Button>
         </Header>
@@ -185,10 +188,13 @@ export default function App() {
             <Route path="/" element={<OverviewPage />} />
             <Route path="/backtest" element={<BacktestHub />}>
               <Route index element={<BacktestIndex />} />
+              <Route path="strategies" element={<StrategiesPage />} />
+              <Route path="builder" element={<BuilderPage />} />
               <Route path="stock" element={<BacktestPage />} />
               <Route path="ema-butterfly" element={<OptionStrategyPage />} />
               <Route path="straddle" element={<StraddlePage />} />
               <Route path="saved" element={<RunsPage />} />
+              <Route path="compare" element={<ComparePage />} />
             </Route>
             {/* Older links and saved bookmarks */}
             <Route path="/option-strategy" element={<RedirectKeepQuery to="/backtest/ema-butterfly" />} />

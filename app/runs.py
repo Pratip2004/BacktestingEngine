@@ -21,6 +21,7 @@ STRATEGY_NAMES = {
     "stock": "Stock strategy backtest",
     "butterfly": "EMA crossover butterfly",
     "straddle": "Intraday ATM straddle",
+    "custom": "Strategy builder",
 }
 _lock = threading.Lock()
 
@@ -41,6 +42,8 @@ def _default_name(strategy: str, params: dict) -> str:
     period = f"{str(params.get('from_date', ''))[:10]} → {str(params.get('to_date', ''))[:10]}"
     if strategy == "stock":
         return f"{params.get('strategy', 'strategy')} on {params.get('stock_code', '')} · {period}"
+    if strategy == "custom":
+        return f"{params.get('spec', {}).get('name', 'Strategy')} · {period}"
     return f"{STRATEGY_NAMES[strategy]} · {period}"
 
 
@@ -64,11 +67,11 @@ def save(strategy: str, params: dict, result: Any, summary: dict | None = None) 
     return run_id
 
 
-def saving(strategy: str, fn: Callable[..., dict]) -> Callable[..., dict]:
+def saving(strategy: str, fn: Callable[..., dict], summary: Callable[[dict], dict] | None = None) -> Callable[..., dict]:
     """Wrap a job function so its result is saved as a run; the job result gains `run_id`."""
     def run(progress, **params):
         result = fn(progress=progress, **params)
-        result["run_id"] = save(strategy, params, result)
+        result["run_id"] = save(strategy, params, result, summary(result) if summary else None)
         return result
     return run
 

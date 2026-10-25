@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from app.breeze_client import breeze
 from app.config import get_settings
 from app.data.ingest import start_background
-from app.routers import account, auth, backtest, data, market, options, runs
+from app.routers import account, auth, backtest, data, market, options, runs, strategies
 
 logging.basicConfig(level=logging.INFO)
 
@@ -29,6 +29,7 @@ app.include_router(backtest.router)
 app.include_router(options.router)
 app.include_router(runs.router)
 app.include_router(data.router)
+app.include_router(strategies.router)
 
 
 @app.get("/")

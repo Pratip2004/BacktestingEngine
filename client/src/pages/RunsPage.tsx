@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Alert, App, Button, Empty, Input, Popconfirm, Segmented, Table, Tag, Tooltip, Typography } from "antd";
-import { DeleteOutlined, DownloadOutlined, FolderOpenOutlined, SearchOutlined } from "@ant-design/icons";
+import { DeleteOutlined, DownloadOutlined, FolderOpenOutlined, SearchOutlined, DiffOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import { errorMessage, useDeleteRun, useRuns, useUpdateRun, type T_RunMeta, type T_RunStrategy } from "../api/client";
@@ -17,6 +17,7 @@ const STRATEGY: Record<T_RunStrategy, { label: string; path: string; color: stri
   stock: { label: "Stock strategy", path: "/backtest/stock", color: "blue" },
   butterfly: { label: "EMA butterfly", path: "/backtest/ema-butterfly", color: "purple" },
   straddle: { label: "ATM straddle", path: "/backtest/straddle", color: "gold" },
+  custom: { label: "Strategy builder", path: "/backtest/builder", color: "geekblue" },
 };
 
 const FILTERS = [
@@ -24,6 +25,7 @@ const FILTERS = [
   { value: "stock", label: "Stock" },
   { value: "butterfly", label: "EMA butterfly" },
   { value: "straddle", label: "Straddle" },
+  { value: "custom", label: "Builder" },
 ];
 
 // ---------- Helpers ----------
@@ -40,6 +42,12 @@ function settings(run: T_RunMeta): string {
   if (run.strategy === "stock") {
     const params = Object.entries((p.params as Record<string, unknown>) ?? {}).map(([k, x]) => `${k} ${x}`).join(", ");
     return `${String(p.stock_code)} · ${String(p.strategy)}${params ? ` (${params})` : ""}`;
+  }
+  if (run.strategy === "custom") {
+    const spec = p.spec as { name?: string; underlying?: string; position?: { legs?: unknown[]; bullish?: unknown[] }; schedule?: { entry?: { type?: string; time?: string } } } | undefined;
+    const legs = spec?.position?.legs?.length ?? spec?.position?.bullish?.length ?? 0;
+    const entry = spec?.schedule?.entry?.type === "signal" ? "signal entry" : `entry ${spec?.schedule?.entry?.time ?? ""}`;
+    return `${spec?.underlying ?? ""} · ${legs} leg${legs === 1 ? "" : "s"} · ${entry}`;
   }
   if (run.strategy === "straddle") {
     const fallbackEntry = (p.entry_times as string[] | undefined)?.[0] ?? String(p.entry_time ?? "09:30");
@@ -69,6 +77,7 @@ export default function RunsPage() {
   const remove = useDeleteRun();
   const [filter, setFilter] = useState("all");
   const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<string[]>([]);
 
   const rows = useMemo(
     () =>
@@ -98,7 +107,12 @@ export default function RunsPage() {
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
         <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
           <Segmented value={filter} onChange={(v) => setFilter(String(v))} options={FILTERS} />
-          <Input allowClear prefix={<SearchOutlined className="text-zinc-400" />} placeholder="Search by name" className="!w-64" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <div className="flex items-center gap-2">
+            <Button icon={<DiffOutlined />} disabled={selected.length < 2} onClick={() => navigate(`/backtest/compare?ids=${selected.join(",")}`)}>
+              Compare{selected.length ? ` (${selected.length})` : ""}
+            </Button>
+            <Input allowClear prefix={<SearchOutlined className="text-zinc-400" />} placeholder="Search by name" className="!w-64" value={query} onChange={(e) => setQuery(e.target.value)} />
+          </div>
         </div>
         {runs.error && <Alert className="mb-4" type="error" showIcon message={errorMessage(runs.error)} />}
         {best && (
@@ -110,6 +124,11 @@ export default function RunsPage() {
           <Table<T_RunMeta>
             size="small"
             rowKey="id"
+            rowSelection={{
+              selectedRowKeys: selected,
+              onChange: (keys) => setSelected((keys as string[]).slice(-4)),
+              columnTitle: <Tooltip title="Pick 2–4 runs to compare"><span className="text-[11px] text-slate-400">Compare</span></Tooltip>,
+            }}
             loading={runs.isLoading}
             dataSource={rows}
             pagination={rows.length > 20 ? { pageSize: 20, showSizeChanger: false } : false}

@@ -96,8 +96,10 @@ The token is cached in `.breeze_session`, so restarting the server the same day 
 ## 6. First steps
 
 1. **Download market data:** **Data store** → *Backfill planner* → choose NIFTY / SENSEX and a period → **Estimate** (shows Breeze calls and time) → **Start download**. It runs in the background within your daily call budget; you can keep working. One year of NIFTY + SENSEX takes about three weeks at the default budget, and backtests can use whatever has arrived so far.
-2. **Run a backtest:** **Backtest** → **Straddle** (or EMA butterfly / Stock strategy) → set the period and options → **Run backtest**. Adjust the exit settings in the results; they update instantly.
-3. **Find it again:** **Backtest → Saved runs**, or press **Ctrl+K** (⌘K on Mac) and type its name.
+2. **Run a backtest:** **Backtest** → **Strategies** → pick a template (or **Builder** for a blank strategy) → adjust entry, legs, exits and costs → set the period → **Run backtest**. The fixed labs (**Straddle**, **EMA butterfly**, **Stock strategy**) are still there; their exit settings update instantly.
+3. **Dig into results:** click **Replay** on any trade to see it minute by minute; use **Optimize** under the results to try 1–2 settings over a grid (turn on *Walk-forward check* to test them on unseen data), then **Use it** to apply the best one. **Save** keeps the strategy in your library with versions.
+4. **Compare:** **Backtest → Saved runs** → tick 2–4 runs → **Compare**.
+5. **Find it again:** **Backtest → Saved runs**, or press **Ctrl+K** (⌘K on Mac) and type its name.
 
 ---
 
@@ -200,10 +202,11 @@ main.py                  FastAPI app and startup
 app/
   breeze_client.py       Breeze session, rate limiting, request timeouts
   config.py              Settings from .env
-  routers/               HTTP endpoints (auth, market, account, options, backtest, runs, data)
+  routers/               HTTP endpoints (auth, market, account, options, backtest, runs, data, strategies)
   backtest/              Backtest engines (stock, EMA butterfly, straddle)
   options/               Option chain, IV / greeks, expiry calendar, background jobs
   data/                  Data store, downloader, NIFTY/SENSEX instrument rules
+  strategy/              Strategy builder: spec, indicators, generic engine, templates, library, replay/sweep
   runs.py                Saved backtests
 client/                  React dashboard (Vite + TypeScript + Ant Design + Tailwind)
   src/pages/             One file per page

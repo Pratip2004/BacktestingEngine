@@ -2,6 +2,7 @@ import axios, { AxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { T_FlyCandidate } from "../lib/flySim";
 import type { T_StraddleDay, T_StraddleParams } from "../lib/straddleSim";
+import type { T_Spec, T_Template } from "../lib/spec";
 
 export const api = axios.create({ baseURL: "/api" });
 
@@ -275,6 +276,115 @@ export type T_ButterflyResult = {
   price: { datetime: string; close: number; ema_fast: number; ema_slow: number }[];
 };
 
+// ---------- Strategy builder ----------
+
+export type T_SavedStrategyMeta = {
+  id: string; name: string; underlying: string; version: number; created_at: string; updated_at: string;
+  template: string | null; entry: "time" | "signal"; legs: number;
+};
+export type T_SavedStrategy = { id: string; version: number; created_at: string; updated_at: string; template: string | null; spec: T_Spec; versions: { version: number; saved_at: string }[] };
+export type T_SpecCheck = { ok: boolean; errors: { path: string; message: string }[]; warnings: string[]; spec: T_Spec | null };
+
+export type T_EngineLeg = {
+  id: string; action: "buy" | "sell"; instrument: "CE" | "PE" | "FUT"; strike: number | null; expiry: string; label: string;
+  qty: number; entry: number; exit: number | null; exit_at: string | null; reason: string | null; pnl: number | null;
+};
+export type T_EngineTrade = {
+  trade_day: string; weekday: number; direction: string | null; dte: number; entry_at: string; exit_at: string | null;
+  spot_entry: number; atm: number; premium: number; capital: number; gross: number; costs: number; net: number;
+  pct: number | null; reason: string; mfe: number | null; mae: number | null; stale_fills: number; legs: T_EngineLeg[];
+};
+export type T_Breakdown = Record<string, { trades: number; net_pnl: number; win_rate: number }>;
+export type T_EngineMetrics = {
+  trades: number; days_traded: number; wins: number; win_rate: number | null; net_pnl: number; gross_pnl: number; costs: number;
+  avg_trade: number | null; avg_win: number | null; avg_loss: number | null; profit_factor: number | null; max_drawdown: number;
+  best: number | null; worst: number | null; longest_losing_streak: number; sharpe: number | null; sortino: number | null;
+  avg_capital: number | null; stale_fill_pct: number; exit_reasons: Record<string, number>;
+};
+export type T_EngineResult = {
+  params: { spec: T_Spec; from_date: string; to_date: string; strategy_id?: string };
+  metrics: T_EngineMetrics;
+  breakdowns: { by_dte: T_Breakdown; by_weekday: T_Breakdown; by_reason: T_Breakdown; by_direction: T_Breakdown; monthly: T_Breakdown };
+  equity: { t: string; equity: number }[];
+  trades: T_EngineTrade[];
+  skipped: { time: string; reason: string }[];
+  trade_days: number;
+  run_id?: string;
+};
+
+export const useTemplates = () => useQuery({ queryKey: ["templates"], queryFn: () => get<T_Template[]>("/strategies/templates"), staleTime: Infinity });
+export const useSavedStrategies = () => useQuery({ queryKey: ["strategies"], queryFn: () => get<T_SavedStrategyMeta[]>("/strategies") });
+export const useSavedStrategy = (id: string | null) =>
+  useQuery({ queryKey: ["strategy", id], queryFn: () => get<T_SavedStrategy>(`/strategies/${id}`), enabled: !!id });
+
+export function useSaveStrategy() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, spec, template }: { id?: string | null; spec: T_Spec; template?: string | null }) =>
+      (id ? api.put<T_SavedStrategy>(`/strategies/${id}`, { spec }) : api.post<T_SavedStrategy>("/strategies", { spec, template })).then((r) => r.data),
+    onSuccess: (doc) => {
+      qc.invalidateQueries({ queryKey: ["strategies"] });
+      qc.setQueryData(["strategy", doc.id], doc);
+    },
+  });
+}
+
+export function useDeleteStrategy() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/strategies/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["strategies"] }),
+  });
+}
+
+export const useValidateSpec = () =>
+  useMutation({ mutationFn: (spec: T_Spec) => api.post<T_SpecCheck>("/strategies/validate", { spec }).then((r) => r.data) });
+
+export const useDataCheck = (underlying: string, from: string, to: string) =>
+  useQuery({
+    queryKey: ["data-check", underlying, from, to],
+    queryFn: () => get<{ weekdays: number; spot_days: number; option_days: number }>("/strategies/data-check", { underlying, from_date: from, to_date: to }),
+    enabled: !!from && !!to,
+  });
+
+export const useRunStrategy = () =>
+  useMutation({
+    mutationFn: (body: { spec: T_Spec; from_date: string; to_date: string; strategy_id?: string | null }) =>
+      api.post<{ job_id: string }>("/strategies/run", body).then((r) => r.data),
+  });
+
+// ---------- Analysis (phase 4) ----------
+
+export type T_Replay = {
+  trade: T_EngineTrade;
+  underlying: string;
+  spot: { t: string; close: number }[];
+  legs: (T_EngineLeg & { series: { t: string; close: number }[] })[];
+  pnl: { t: string; pnl: number | null }[];
+};
+export type T_SweepParam = { path: string; label: string; values: (number | string)[] };
+export type T_SweepMetrics = { net_pnl: number; win_rate: number | null; profit_factor: number | null; sharpe: number | null; max_drawdown: number; trades: number; error?: string };
+export type T_SweepResult = {
+  params: T_SweepParam[];
+  periods: { in: [string, string]; out?: [string, string] };
+  walk_forward: boolean;
+  cells: { values: (number | string)[]; in: T_SweepMetrics; out?: T_SweepMetrics }[];
+};
+
+export const useReplay = (runId: string | null, index: number | null) =>
+  useQuery({
+    queryKey: ["replay", runId, index],
+    queryFn: () => get<T_Replay>(`/strategies/replay/${runId}/${index}`),
+    enabled: !!runId && index !== null,
+    staleTime: Infinity,
+  });
+
+export const useStartSweep = () =>
+  useMutation({
+    mutationFn: (body: { spec: T_Spec; from_date: string; to_date: string; params: T_SweepParam[]; walk_forward: boolean; in_sample_pct?: number }) =>
+      api.post<{ job_id: string }>("/strategies/sweep", body).then((r) => r.data),
+  });
+
 // ---------- Local data store ----------
 
 export type T_DataUnderlying = "NIFTY" | "SENSEX";
@@ -400,7 +510,7 @@ export function useUpdateDataSettings() {
 
 // ---------- Saved backtests ----------
 
-export type T_RunStrategy = "stock" | "butterfly" | "straddle";
+export type T_RunStrategy = "stock" | "butterfly" | "straddle" | "custom";
 
 export type T_RunSummary = { net_pnl: number | null; trades: number | null; win_rate: number | null; [k: string]: unknown };
 

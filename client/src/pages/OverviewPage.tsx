@@ -1,8 +1,8 @@
 import { Button, Empty, Progress, Tag, Typography } from "antd";
 import {
+  AppstoreOutlined,
   ArrowRightOutlined,
   CheckCircleFilled,
-  DatabaseOutlined,
   FundOutlined,
   LineChartOutlined,
   ThunderboltOutlined,
@@ -17,13 +17,13 @@ const { Text, Title } = Typography;
 // ---------- Constants ----------
 
 const QUICK_START = [
+  { title: "Strategy builder", desc: "Any options strategy, no code: legs, indicators, exits.", icon: <AppstoreOutlined />, to: "/backtest/strategies", color: "from-fuchsia-500 to-indigo-500" },
   { title: "ATM straddle", desc: "Buy or sell the straddle at a set time, per-DTE targets and stops.", icon: <ThunderboltOutlined />, to: "/backtest/straddle", color: "from-indigo-500 to-violet-500" },
   { title: "EMA butterfly", desc: "Butterfly on EMA crossovers, with an interactive exit lab.", icon: <FundOutlined />, to: "/backtest/ema-butterfly", color: "from-sky-500 to-indigo-500" },
   { title: "Stock strategy", desc: "SMA / RSI strategies on any NSE stock or index.", icon: <LineChartOutlined />, to: "/backtest/stock", color: "from-emerald-500 to-teal-500" },
-  { title: "Data store", desc: "Download and inspect 1-minute options history.", icon: <DatabaseOutlined />, to: "/data", color: "from-amber-500 to-orange-500" },
 ];
 
-const RUN_PATH: Record<string, string> = { stock: "/backtest/stock", butterfly: "/backtest/ema-butterfly", straddle: "/backtest/straddle" };
+const RUN_PATH: Record<string, string> = { stock: "/backtest/stock", butterfly: "/backtest/ema-butterfly", straddle: "/backtest/straddle", custom: "/backtest/builder" };
 
 // ---------- Helpers ----------
 

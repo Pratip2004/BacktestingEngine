@@ -36,8 +36,11 @@ React 19 + Vite + TypeScript + **Ant Design v5** + Tailwind v4 + React Query + R
 |---|---|---|
 | `/` | Overview: getting-started checklist (login → download data → first backtest), KPIs, quick-start tiles, recent runs | `/auth/status`, `/data/status`, `/runs` |
 | `/data` | Data store: stats, downloader (state, jobs, pause/resume, retry failed, cancel), backfill planner (estimate calls/ETA, start), 12-month coverage calendar per underlying with per-day contract drawer, settings | `/data/*` |
-| `/backtest` | Hub with tabs (`BacktestHub.tsx`, nested routes): `/backtest/stock`, `/backtest/ema-butterfly`, `/backtest/straddle`, `/backtest/saved`. `/backtest` → `/backtest/stock` (keeps `?run=`). Old `/straddle`, `/option-strategy`, `/runs` redirect with their query string. Breadcrumb `backtestCrumb` in `lib/nav.ts` | – |
-| `/backtest/saved` | Saved runs: every saved run (filter by strategy, search, rename inline, open, download PDF, delete), per-strategy counts and combined net P&L | `/runs` |
+| `/backtest` | Hub with tabs (`BacktestHub.tsx`, nested routes): `/backtest/strategies`, `/backtest/builder`, `/backtest/straddle`, `/backtest/ema-butterfly`, `/backtest/stock`, `/backtest/saved` (`/backtest/compare` highlights Saved runs). `/backtest` → `/backtest/strategies` (or `/backtest/stock` when it has `?run=`). Old `/straddle`, `/option-strategy`, `/runs` redirect with their query string. Breadcrumb `backtestCrumb` in `lib/nav.ts` | – |
+| `/backtest/strategies` | Saved strategies (open, delete) + templates gallery by category | `/strategies`, `/strategies/templates` |
+| `/backtest/builder` | Visual builder (`?template=`, `?strategy=`, `?run=`; priority strategy > run > template > blank): 5 steps (Basics, Entry, Legs, Exits, Costs) in `components/builder/`, side panel with plain-English summary, payoff, checks, period + data check + run; save / save as new (versioned). Results (`StrategyResults`) with per-trade Replay drawer, then Optimize (`SweepPanel`: 1–2 parameters, ≤36 combinations, optional walk-forward, heatmaps, "Use it" applies the best cell) | `/strategies/*`, `/options/jobs/{id}` |
+| `/backtest/saved` | Saved runs: every saved run (filter by strategy, search, rename inline, open, download PDF, delete), per-strategy counts and combined net P&L. Select 2–4 → Compare | `/runs` |
+| `/backtest/compare?ids=` | Compare 2–4 runs: metrics table (builder runs full metrics, others their summary), equity overlay for builder runs | `/runs/{id}` |
 | `/backtest/stock` | Strategy form (params from `/backtest/strategies`), metrics, equity vs buy & hold chart, trades | `POST /backtest` |
 | `/backtest/ema-butterfly` | EMA crossover butterfly: config (range, timeframe, EMAs, wing, lots, costs) loads candidate trades. The exit lab has target / stop-loss sliders (% of premium), square-off and last-entry times, live stats, a clickable target × stop heatmap, a best/worst scatter, equity, signals chart and trades with legs | `POST /backtest/options-butterfly`, `/options/jobs/{id}` |
 | `/backtest/straddle` | ATM straddle: option buy / sell, period (with presets), entry times to load (previous-day and same-day minutes), lots, costs. The lab has Buy/Sell switch, entry-time switch, DTE day filter chips, exit levels same-for-all or per DTE (buy target ×; sell target % kept + stop-loss %, with best-per-day suggestions), exit time, live stats, sell target × stop map, entry-time and DTE comparison tables (clickable), "which target?" charts, daily P&L, equity and trades | `POST /backtest/straddle`, `/options/jobs/{id}` |
@@ -97,6 +100,13 @@ app/data/store.py           DuckDB store (.data/market.duckdb): spot_1m, fut_1m,
 app/data/access.py          option_minute_bars / spot_minute_bars: read the store, fetch only missing contract-days; resample
 app/data/ingest.py          backfill planner, background worker (budget, retries), nightly job, import of old JSON caches
 app/routers/data.py         /data/*
+app/strategy/spec.py        StrategySpec v1 (Pydantic): schedule, position/legs, exits, risk, costs; validate_spec() → errors, warnings
+app/strategy/signals.py     indicators (EMA/SMA/RSI/VWAP/MACD/Supertrend/BBands/ATR/ORB/prev-day/gap…) on 09:15-anchored candles, no lookahead; signal_times()
+app/strategy/engine.py      generic engine run_strategy(spec, from, to): intrabar (up/down scenarios) or candle-close exits, per-leg + combined + trailing, re-entry, day risk, DatedCosts
+app/strategy/templates.py   10 templates (straddles, strangle, condor, iron fly, EMA butterfly, ORB, Supertrend spread, RSI)
+app/strategy/library.py     saved strategies in .data/strategies/{id}.json with versions
+app/strategy/analysis.py    replay() one trade minute by minute; sweep() 1–2 parameter grid, optional walk-forward
+app/routers/strategies.py   /strategies/*
 app/routers/options.py      /options/*
 client/                     React dashboard (see Frontend below)
 ```
@@ -133,6 +143,13 @@ client/                     React dashboard (see Frontend below)
 | POST | `/data/backfill` | `get_historical_data_v2` (1day for planning) | Plan (`dry_run`) or queue a download; returns calls + ETA |
 | PATCH | `/data/settings` | – | Budget, underlyings, strike band, expiries, nightly job |
 | POST | `/data/worker/{pause,resume}`, `/data/queue/retry-failed`; DELETE `/data/queue` | – | Downloader control |
+| GET | `/strategies/templates` | – | Builder templates |
+| POST | `/strategies/validate` | – | `{spec}` → `{ok, errors[{path,message}], warnings, spec}` |
+| GET | `/strategies/data-check?underlying=&from_date=&to_date=` | – | Weekdays vs spot/option days already stored |
+| POST | `/strategies/run` | via the store (`get_historical_data_v2` for missing contract-days) | `{spec, from_date, to_date, strategy_id?}` → job; result saved as a `custom` run |
+| POST | `/strategies/sweep` | same | `{spec, from_date, to_date, params[{path,label,values}], walk_forward, in_sample_pct}` → job (≤36 combinations) |
+| GET | `/strategies/replay/{run_id}/{index}` | same | Trade replay: underlying, leg closes, position P&L on one timeline |
+| GET/POST | `/strategies`; GET/PUT/DELETE `/strategies/{id}` | – | Saved strategy library (PUT adds a version) |
 | GET | `/backtest/strategies` | – | Lists strategies + default params |
 | POST | `/backtest` | `get_historical_data_v2` | Runs a strategy over fetched candles |
 
@@ -275,7 +292,7 @@ Add a function `fn(df, **params) -> pd.Series` (values 1/0, same index as `df`) 
 
 ## Roadmap
 
-`docs/STRATEGY_BUILDER_PLAN.md`: plan for the generic, visual-builder backtesting platform (StrategySpec, local data store, generic engine, builder UX, phases 1–6). Decisions: visual builder only, index options + futures (NIFTY + SENSEX first), single user, paper trading later, 1 year history, ±40 strikes, light UI with dark sidebar. **Done:** phase 0 (Backtest hub), phase 1 (data store, downloader, Data page) and the SaaS shell. **Next:** phase 2 (StrategySpec v1 + generic engine, parity with the straddle/butterfly engines).
+`docs/STRATEGY_BUILDER_PLAN.md`: plan for the generic, visual-builder backtesting platform (StrategySpec, local data store, generic engine, builder UX, phases 1–6). Decisions: visual builder only, index options + futures (NIFTY + SENSEX first), single user, paper trading later, 1 year history, ±40 strikes, light UI with dark sidebar. **Done:** phase 0 (Backtest hub), phase 1 (data store, downloader, Data page), SaaS shell, phase 2 (StrategySpec v1 + generic engine; parity with the straddle and butterfly engines verified to the paisa), phase 3 (visual builder, templates, library), phase 4 core (trade replay, sweep + walk-forward, compare runs). **Next:** phase 4 extras (monthly calendar, robustness score), phase 5 (adjustments, delta/IV conditions, margin), phase 6 (paper trading).
 
 ## Guidelines for changes
 
