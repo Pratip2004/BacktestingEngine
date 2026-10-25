@@ -1,0 +1,7 @@
+.env
+.breeze_session
+.venv/
+__pycache__/
+.cache/
+.data/
+logs/

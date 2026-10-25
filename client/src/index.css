@@ -1,0 +1,16 @@
+/* antd's CSS-in-JS is placed in the "antd" layer (see StyleProvider in main.tsx),
+   so Tailwind utilities can override it while Tailwind's preflight can't. */
+@layer theme, base, antd, components, utilities;
+@import "tailwindcss";
+
+body {
+  background: #f8fafc;
+  font-family: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: "cv11", "ss01"; /* Inter: single-storey a (cv11), open digits (ss01) */
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Tabular numbers everywhere money and counts line up. */
+.ant-table, .ant-statistic, .tabular-nums {
+  font-variant-numeric: tabular-nums;
+}

@@ -1,0 +1,7 @@
+fastapi==0.143.5
+uvicorn[standard]==0.54.0
+breeze-connect==1.0.69
+pandas==2.3.3
+pydantic-settings==2.15.0
+python-dotenv==1.2.4
+duckdb==1.5.6
