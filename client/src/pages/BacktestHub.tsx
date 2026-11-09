@@ -8,6 +8,7 @@ import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 const BACKTEST_TABS = [
   { key: "strategies", label: "Strategies" },
   { key: "builder", label: "Builder" },
+  { key: "portfolio", label: "Portfolio" },
   { key: "straddle", label: "Straddle" },
   { key: "ema-butterfly", label: "EMA butterfly" },
   { key: "stock", label: "Stock strategy" },

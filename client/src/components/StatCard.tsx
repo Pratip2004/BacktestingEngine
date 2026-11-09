@@ -8,7 +8,7 @@ export default function StatCard({
   hint,
   dot,
 }: {
-  label: string;
+  label: React.ReactNode;
   value: React.ReactNode;
   hint?: React.ReactNode;
   dot?: "good" | "bad";

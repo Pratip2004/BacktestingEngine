@@ -1,0 +1,666 @@
+{
+ "agent": "agent-optspread",
+ "screens_run": 17,
+ "experiments_created": [
+  "E0041",
+  "E0042"
+ ],
+ "breeze_calls_used": 87,
+ "notes": "Family: defined-risk NIFTY weekly option spreads held 1-4 days on daily signals, train 2025 only. Step 1, daily pre-check on NIFTY + India VIX daily candles 2012-2024 (16 looks, logged as daily-precheck): a 3-day bull put spread (short ~0.6% OTM, long 200 pts lower at 25k scale, next-open entry, close of day 3 exit, ~3.5 pts costs) priced with Black-Scholes using IV = VIX. Unconditional put spreads ≈ -0.6 pts/trade, bear call spreads negative in every filter (index drift), 'calm' (10d realised vol < VIX) iron-condor legs negative on both sides, so condors and bear calls were dropped. Only one filter stood out: uptrend (close > EMA20, EMA20 rising) AND VIX > SMA20(VIX) AND VIX below yesterday: +7.5 pts/trade (25k scale), 244 signals, t≈2.0, positive in 10 of 13 years but negative in 2012, 2013 and 2016, and concentrated in 2021-2024. Fragile: the SMA10 VIX-mean variant drops to +2.3 pts, t 0.9. Step 2, one engine screen offline (1 look) only to confirm the signal dates (17 of 17 skipped for missing option data, as expected). Step 3, two online training experiments with identical rules: E0041 NIFTY and E0042 SENSEX (replication), each with a 2x-slippage stress period. Each made 11 trades in 2025 (0 skipped): NIFTY +₹2.8k, PF 1.19, t 0.22, net without the top trades -₹0.8k, H1 -₹6.2k / H2 +₹9.0k; SENSEX +₹1.9k, PF 1.14, t 0.15, H1 -₹5.6k / H2 +₹7.5k. Both still slightly positive at 2x slippage (+₹1.1k / +₹1.4k). Margin (max loss) is ~₹11-13k per lot, return on peak margin 21% / 16%. One trade (entry 3 Apr 2025, the tariff gap-down of 7 Apr) lost ~₹11k on each index, about the whole spread width; the other 10 are small wins. That is the textbook short-put payoff, and 11 trades a year can't tell an edge from luck. Verdict: nothing meets the training bar (min 20 trades, t ≥ 2), so no candidates are submitted. The rule is listed under 'watchlist' (not auto-queued) in case the lead wants a low-frequency, defined-risk bullish sleeve for a bucket. The third experiment was deliberately not used: loosening the filter to get more trades had a weak prior in the pre-check (VIX high & falling without the trend filter: +1.75 pts, t 0.9), so it would have been mining.",
+ "platform_issues": [
+  "Experiment ext metrics: 'daily_t' and 'peak_margin' come back None for these swing option runs. 'peak_capital_required' (13,185) does equal the max per-trade margin, so margin is reported, just under another name.",
+  "The trade JSON uses 'reason', while the brief's screen docs say 'exit_reason'.",
+  "SENSEX entry on Saturday 1 Feb 2025 (Budget-day special session) filled at 09:51, not 09:20, presumably the first minute with option candles. Harmless, but the budget session is treated as a normal trading day (NIFTY too).",
+  "GET /research/regimes has no SENSEX-specific regime check here: I labelled SENSEX trades with NIFTY trend_vol codes, which is an approximation."
+ ],
+ "candidates": [],
+ "watchlist": [
+  {
+   "name": "NIFTY bull put spread 0.6/1.4% OTM, 3-day hold: uptrend + VIX elevated & falling",
+   "family": "opt-spread",
+   "instrument": "options",
+   "status": "fails training criteria (11 trades, t 0.22); not a candidate",
+   "hypothesis": "After a fear spike that is fading (VIX above its 20-day mean but falling) in an uptrend, a 3-day bull put credit spread collects rich put premium that decays as fear normalises.",
+   "mechanism": "The variance risk premium is largest just after fear spikes. Once VIX turns down, OTM put IV (with skew) overstates the next few days' realised downside. The trend filter avoids selling into an ongoing slide.",
+   "failure_modes": "A second leg down after a partial VIX retracement (Apr 2025 tariff gap) takes near max loss; small sample (~11-18 a year); sensitive to the VIX mean length.",
+   "regimes_expected": [
+    2,
+    3,
+    4
+   ],
+   "spec": {
+    "spec_version": 1,
+    "name": "NIFTY bull put spread: uptrend + VIX elevated & falling",
+    "underlying": "NIFTY",
+    "timeframe": "1d",
+    "description": "Daily: close>EMA20, EMA20 rising, VIX>SMA20(VIX), VIX below yesterday -> next day 09:20 sell 0.6% OTM put, buy 1.4% OTM put, nearest weekly >=3 days out; hold up to 3 days; exit next morning if close<EMA20.",
+    "lots": 1,
+    "schedule": {
+     "entry": {
+      "type": "signal",
+      "signal": {
+       "all": [
+        {
+         "left": {
+          "ind": "price",
+          "tf": "1d"
+         },
+         "op": ">",
+         "right": {
+          "ind": "ema",
+          "tf": "1d",
+          "params": {
+           "period": 20
+          }
+         }
+        },
+        {
+         "left": {
+          "ind": "ema",
+          "tf": "1d",
+          "params": {
+           "period": 20
+          }
+         },
+         "op": ">",
+         "right": {
+          "ind": "ema",
+          "tf": "1d",
+          "params": {
+           "period": 20
+          },
+          "shift": 1
+         }
+        },
+        {
+         "left": {
+          "ind": "price",
+          "tf": "1d",
+          "params": {
+           "symbol": "VIX"
+          }
+         },
+         "op": ">",
+         "right": {
+          "ind": "sma",
+          "tf": "1d",
+          "params": {
+           "period": 20,
+           "symbol": "VIX"
+          }
+         }
+        },
+        {
+         "left": {
+          "ind": "price",
+          "tf": "1d",
+          "params": {
+           "symbol": "VIX"
+          }
+         },
+         "op": "<",
+         "right": {
+          "ind": "price",
+          "tf": "1d",
+          "params": {
+           "symbol": "VIX"
+          },
+          "shift": 1
+         }
+        }
+       ]
+      },
+      "next_day_time": "09:20"
+     }
+    },
+    "position": {
+     "legs": [
+      {
+       "id": "short_pe",
+       "action": "sell",
+       "instrument": "PE",
+       "strike": {
+        "by": "pct_otm",
+        "value": 0.6
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0,
+        "min_days": 3
+       }
+      },
+      {
+       "id": "long_pe",
+       "action": "buy",
+       "instrument": "PE",
+       "strike": {
+        "by": "pct_otm",
+        "value": 1.4
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0,
+        "min_days": 3
+       }
+      }
+     ]
+    },
+    "exits": {
+     "pnl_basis": "net",
+     "exit_signal": {
+      "left": {
+       "ind": "price",
+       "tf": "1d"
+      },
+      "op": "<",
+      "right": {
+       "ind": "ema",
+       "tf": "1d",
+       "params": {
+        "period": 20
+       }
+      }
+     }
+    },
+    "holding": {
+     "mode": "swing",
+     "max_days": 3,
+     "exit_time": "15:20",
+     "exit_before_expiry": 1,
+     "check": "1d"
+    },
+    "costs": {
+     "brokerage_per_order": 20,
+     "slippage_points": 0.5,
+     "fut_slippage_points": 1,
+     "taxes": true
+    }
+   },
+   "sensex_spec": {
+    "spec_version": 1,
+    "name": "SENSEX bull put spread: uptrend + VIX elevated & falling",
+    "underlying": "SENSEX",
+    "timeframe": "1d",
+    "description": "Daily: close>EMA20, EMA20 rising, VIX>SMA20(VIX), VIX below yesterday -> next day 09:20 sell 0.6% OTM put, buy 1.4% OTM put, nearest weekly >=3 days out; hold up to 3 days; exit next morning if close<EMA20.",
+    "lots": 1,
+    "schedule": {
+     "entry": {
+      "type": "signal",
+      "signal": {
+       "all": [
+        {
+         "left": {
+          "ind": "price",
+          "tf": "1d"
+         },
+         "op": ">",
+         "right": {
+          "ind": "ema",
+          "tf": "1d",
+          "params": {
+           "period": 20
+          }
+         }
+        },
+        {
+         "left": {
+          "ind": "ema",
+          "tf": "1d",
+          "params": {
+           "period": 20
+          }
+         },
+         "op": ">",
+         "right": {
+          "ind": "ema",
+          "tf": "1d",
+          "params": {
+           "period": 20
+          },
+          "shift": 1
+         }
+        },
+        {
+         "left": {
+          "ind": "price",
+          "tf": "1d",
+          "params": {
+           "symbol": "VIX"
+          }
+         },
+         "op": ">",
+         "right": {
+          "ind": "sma",
+          "tf": "1d",
+          "params": {
+           "period": 20,
+           "symbol": "VIX"
+          }
+         }
+        },
+        {
+         "left": {
+          "ind": "price",
+          "tf": "1d",
+          "params": {
+           "symbol": "VIX"
+          }
+         },
+         "op": "<",
+         "right": {
+          "ind": "price",
+          "tf": "1d",
+          "params": {
+           "symbol": "VIX"
+          },
+          "shift": 1
+         }
+        }
+       ]
+      },
+      "next_day_time": "09:20"
+     }
+    },
+    "position": {
+     "legs": [
+      {
+       "id": "short_pe",
+       "action": "sell",
+       "instrument": "PE",
+       "strike": {
+        "by": "pct_otm",
+        "value": 0.6
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0,
+        "min_days": 3
+       }
+      },
+      {
+       "id": "long_pe",
+       "action": "buy",
+       "instrument": "PE",
+       "strike": {
+        "by": "pct_otm",
+        "value": 1.4
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0,
+        "min_days": 3
+       }
+      }
+     ]
+    },
+    "exits": {
+     "pnl_basis": "net",
+     "exit_signal": {
+      "left": {
+       "ind": "price",
+       "tf": "1d"
+      },
+      "op": "<",
+      "right": {
+       "ind": "ema",
+       "tf": "1d",
+       "params": {
+        "period": 20
+       }
+      }
+     }
+    },
+    "holding": {
+     "mode": "swing",
+     "max_days": 3,
+     "exit_time": "15:20",
+     "exit_before_expiry": 1,
+     "check": "1d"
+    },
+    "costs": {
+     "brokerage_per_order": 20,
+     "slippage_points": 0.5,
+     "fut_slippage_points": 1,
+     "taxes": true
+    }
+   },
+   "gate_suggestion": {
+    "left": {
+     "ind": "regime",
+     "tf": "1d",
+     "params": {
+      "model": "trend_vol"
+     }
+    },
+    "op": "!=",
+    "right": {
+     "ind": "value",
+     "params": {
+      "value": 1
+     }
+    }
+   },
+   "gate_note": "Untested on the engine. In training, both trades with signal-day regime 1 (up/calm) lost about ₹10k in total (incl. the Apr 2025 loss), which fits the thesis (no rich premium when calm), but it rests on 2-3 trades.",
+   "train": {
+    "NIFTY_E0041": {
+     "summary": {
+      "trades": 11,
+      "net_pnl": 2796.32,
+      "gross_pnl": 4181.25,
+      "costs_total": 3034.93,
+      "profit_factor": 1.19,
+      "win_rate": 72.7,
+      "t_stat": 0.22,
+      "sharpe": 0.23,
+      "max_drawdown": -13956.7,
+      "worst_day": -5542.5,
+      "net_ex_top_k": -796.17,
+      "avg_net_points": 3.39,
+      "peak_capital_required": 13185.0,
+      "avg_capital_required": 11688.07,
+      "return_on_margin_pct": 21.21,
+      "boot_p_loss": 39.2,
+      "skipped": 0
+     },
+     "stress_2x_slippage": {
+      "trades": 11,
+      "net_pnl": 1147.1,
+      "profit_factor": 1.08,
+      "t_stat": 0.09
+     },
+     "by_half": {
+      "2025H1": -6179.88,
+      "2025H2": 8976.2
+     },
+     "by_regime_trend_vol_signal_day": {
+      "6": {
+       "trades": 1,
+       "net": 3385.97,
+       "wins": 1
+      },
+      "3": {
+       "trades": 4,
+       "net": 3948.87,
+       "wins": 3
+      },
+      "1": {
+       "trades": 2,
+       "net": -10457.69,
+       "wins": 1
+      },
+      "4": {
+       "trades": 1,
+       "net": 3592.49,
+       "wins": 1
+      },
+      "2": {
+       "trades": 2,
+       "net": 349.14,
+       "wins": 1
+      },
+      "5": {
+       "trades": 1,
+       "net": 1977.54,
+       "wins": 1
+      }
+     },
+     "trades": [
+      {
+       "entry_at": "2025-02-01 09:20",
+       "exit_at": "2025-02-04 15:20",
+       "reason": "time",
+       "net": 3385.97,
+       "capital": 4117.5,
+       "margin": 10882.5
+      },
+      {
+       "entry_at": "2025-03-26 09:20",
+       "exit_at": "2025-03-28 15:20",
+       "reason": "time",
+       "net": -2618.93,
+       "capital": 3318.75,
+       "margin": 11681.25
+      },
+      {
+       "entry_at": "2025-04-03 09:20",
+       "exit_at": "2025-04-07 09:20",
+       "reason": "signal",
+       "net": -10888.55,
+       "capital": 3903.75,
+       "margin": 11096.25
+      },
+      {
+       "entry_at": "2025-04-16 09:20",
+       "exit_at": "2025-04-21 15:20",
+       "reason": "time",
+       "net": 3592.49,
+       "capital": 3948.75,
+       "margin": 11051.25
+      },
+      {
+       "entry_at": "2025-04-29 09:20",
+       "exit_at": "2025-05-02 15:20",
+       "reason": "time",
+       "net": -1238.66,
+       "capital": 3907.5,
+       "margin": 11092.5
+      },
+      {
+       "entry_at": "2025-05-13 09:20",
+       "exit_at": "2025-05-15 15:20",
+       "reason": "time",
+       "net": 1587.8,
+       "capital": 4263.75,
+       "margin": 10736.25
+      },
+      {
+       "entry_at": "2025-08-19 09:20",
+       "exit_at": "2025-08-21 15:20",
+       "reason": "time",
+       "net": 1977.54,
+       "capital": 3090.0,
+       "margin": 11910.0
+      },
+      {
+       "entry_at": "2025-10-16 09:20",
+       "exit_at": "2025-10-20 15:20",
+       "reason": "time",
+       "net": 1945.32,
+       "capital": 2456.25,
+       "margin": 12543.75
+      },
+      {
+       "entry_at": "2025-10-23 09:20",
+       "exit_at": "2025-10-27 15:20",
+       "reason": "time",
+       "net": 430.86,
+       "capital": 1815.0,
+       "margin": 13185.0
+      },
+      {
+       "entry_at": "2025-11-13 09:20",
+       "exit_at": "2025-11-17 15:20",
+       "reason": "time",
+       "net": 2177.55,
+       "capital": 2542.5,
+       "margin": 12457.5
+      },
+      {
+       "entry_at": "2025-11-25 09:20",
+       "exit_at": "2025-11-27 15:20",
+       "reason": "time",
+       "net": 2444.93,
+       "capital": 3067.5,
+       "margin": 11932.5
+      }
+     ],
+     "run_id": "82abd8c69615"
+    },
+    "SENSEX_E0042": {
+     "summary": {
+      "trades": 11,
+      "net_pnl": 1852.35,
+      "gross_pnl": 3161.0,
+      "costs_total": 1748.65,
+      "profit_factor": 1.14,
+      "win_rate": 72.7,
+      "t_stat": 0.15,
+      "sharpe": 0.15,
+      "max_drawdown": -13607.37,
+      "worst_day": -8151.64,
+      "net_ex_top_k": -1501.25,
+      "avg_net_points": 8.42,
+      "peak_capital_required": 11279.0,
+      "avg_capital_required": 9556.09,
+      "return_on_margin_pct": 16.42,
+      "boot_p_loss": 41.0,
+      "skipped": 0
+     },
+     "stress_2x_slippage": {
+      "trades": 11,
+      "net_pnl": 1412.55,
+      "profit_factor": 1.1,
+      "t_stat": 0.11
+     },
+     "by_half": {
+      "2025H1": -5620.83,
+      "2025H2": 7473.18
+     },
+     "by_regime_trend_vol_signal_day": {
+      "6": {
+       "trades": 1,
+       "net": 3353.6,
+       "wins": 1
+      },
+      "3": {
+       "trades": 3,
+       "net": 1595.71,
+       "wins": 2
+      },
+      "1": {
+       "trades": 3,
+       "net": -9484.59,
+       "wins": 1
+      },
+      "4": {
+       "trades": 1,
+       "net": 2327.97,
+       "wins": 1
+      },
+      "2": {
+       "trades": 2,
+       "net": 2148.33,
+       "wins": 2
+      },
+      "5": {
+       "trades": 1,
+       "net": 1911.33,
+       "wins": 1
+      }
+     },
+     "trades": [
+      {
+       "entry_at": "2025-02-01 09:51",
+       "exit_at": "2025-02-04 15:20",
+       "reason": "time",
+       "net": 3353.6,
+       "capital": 4702.0,
+       "margin": 7298.0
+      },
+      {
+       "entry_at": "2025-03-26 09:20",
+       "exit_at": "2025-03-28 15:20",
+       "reason": "time",
+       "net": -2156.89,
+       "capital": 2721.0,
+       "margin": 11279.0
+      },
+      {
+       "entry_at": "2025-04-03 09:20",
+       "exit_at": "2025-04-07 09:20",
+       "reason": "signal",
+       "net": -11293.84,
+       "capital": 2716.0,
+       "margin": 9284.0
+      },
+      {
+       "entry_at": "2025-04-16 09:20",
+       "exit_at": "2025-04-21 15:20",
+       "reason": "time",
+       "net": 2327.97,
+       "capital": 2493.0,
+       "margin": 9507.0
+      },
+      {
+       "entry_at": "2025-04-29 09:20",
+       "exit_at": "2025-05-02 15:20",
+       "reason": "time",
+       "net": 202.1,
+       "capital": 3196.0,
+       "margin": 8804.0
+      },
+      {
+       "entry_at": "2025-05-13 09:20",
+       "exit_at": "2025-05-15 15:20",
+       "reason": "time",
+       "net": 1946.23,
+       "capital": 4607.0,
+       "margin": 9393.0
+      },
+      {
+       "entry_at": "2025-08-19 09:20",
+       "exit_at": "2025-08-21 15:20",
+       "reason": "time",
+       "net": 1911.33,
+       "capital": 2534.0,
+       "margin": 9466.0
+      },
+      {
+       "entry_at": "2025-10-16 09:20",
+       "exit_at": "2025-10-20 15:20",
+       "reason": "time",
+       "net": 1662.22,
+       "capital": 1833.0,
+       "margin": 10167.0
+      },
+      {
+       "entry_at": "2025-10-23 09:20",
+       "exit_at": "2025-10-27 15:20",
+       "reason": "time",
+       "net": -2.18,
+       "capital": 2235.0,
+       "margin": 9765.0
+      },
+      {
+       "entry_at": "2025-11-11 09:20",
+       "exit_at": "2025-11-13 15:20",
+       "reason": "time",
+       "net": 1811.43,
+       "capital": 2800.0,
+       "margin": 9200.0
+      },
+      {
+       "entry_at": "2025-11-25 09:20",
+       "exit_at": "2025-11-27 15:20",
+       "reason": "time",
+       "net": 2090.38,
+       "capital": 3046.0,
+       "margin": 10954.0
+      }
+     ],
+     "run_id": "45a7adf9fd88"
+    },
+    "pooled_both_indices": {
+     "trades": 22,
+     "net_pnl": 4648.67
+    },
+    "precheck_2012_2024": {
+     "signals": 244,
+     "avg_pts_net_25k_scale": 7.5,
+     "t": 2.0,
+     "proxy": "Black-Scholes with IV=VIX, ~3.5 pts round-trip costs"
+    }
+   }
+  }
+ ]
+}

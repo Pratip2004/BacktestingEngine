@@ -15,8 +15,10 @@ const inr = (n: number) => `${n < 0 ? "−" : n > 0 ? "+" : ""}₹${Math.abs(Mat
 const hhmm = (t: string) => t.slice(11, 16);
 
 // Minute-by-minute view of one trade: the underlying, each leg's price and the position's P&L.
-export default function ReplayDrawer({ runId, index, onClose }: { runId: string; index: number | null; onClose: () => void }) {
-  const q = useReplay(runId, index);
+export default function ReplayDrawer({ runId, index, onClose, member }: { runId: string; index: number | null; onClose: () => void; member?: string | null }) {
+  const q = useReplay(runId, index, member);
+  const multiDay = !!q.data && q.data.trade.entry_at.slice(0, 10) !== (q.data.trade.exit_at ?? q.data.trade.entry_at).slice(0, 10);
+  const tick = (t: string) => (multiDay ? dayjs(t).format("D MMM HH:mm") : hhmm(t));
   const r = q.data;
   const entry = r?.trade.entry_at;
   const exit = r?.trade.exit_at ?? undefined;
@@ -34,7 +36,7 @@ export default function ReplayDrawer({ runId, index, onClose }: { runId: string;
       {exit && <ReferenceLine x={exit} stroke="#EF4444" strokeDasharray="4 3" label={{ value: "Exit", position: "top", fontSize: 10, fill: "#DC2626" }} />}
     </>
   );
-  const xAxis = <XAxis dataKey="t" tickFormatter={hhmm} tick={{ fontSize: 10, fill: AXIS }} stroke={GRID} minTickGap={40} />;
+  const xAxis = <XAxis dataKey="t" tickFormatter={tick} tick={{ fontSize: 10, fill: AXIS }} stroke={GRID} minTickGap={40} />;
 
   return (
     <Drawer open={index !== null} onClose={onClose} width={760}
@@ -43,7 +45,7 @@ export default function ReplayDrawer({ runId, index, onClose }: { runId: string;
       {!r ? <Skeleton active /> : (
         <div className="space-y-6">
           <div className="flex flex-wrap gap-2">
-            <Tag>{hhmm(r.trade.entry_at)} → {r.trade.exit_at ? hhmm(r.trade.exit_at) : "–"}</Tag>
+            <Tag>{tick(r.trade.entry_at)} → {r.trade.exit_at ? tick(r.trade.exit_at) : "–"}</Tag>
             <Tag color={r.trade.net >= 0 ? "success" : "error"}>Net {inr(r.trade.net)}</Tag>
             <Tag>Exit: {r.trade.reason}</Tag>
             {r.trade.direction && <Tag color={r.trade.direction === "bullish" ? "green" : "red"}>{r.trade.direction}</Tag>}

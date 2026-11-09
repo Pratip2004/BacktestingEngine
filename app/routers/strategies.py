@@ -46,6 +46,14 @@ def list_templates():
     return templates()
 
 
+@router.get("/indicators")
+def list_indicators():
+    """Extended indicator catalogue (built-ins are documented in app/strategy/spec.py BUILTIN_INDICATORS)."""
+    from app.strategy.indicators import catalogue
+    from app.strategy.spec import BUILTIN_INDICATORS
+    return {"builtin": list(BUILTIN_INDICATORS), "extended": catalogue()}
+
+
 @router.post("/validate")
 def validate(body: SpecIn):
     return _check(body.spec)
@@ -113,9 +121,9 @@ def start_sweep(body: SweepIn):
 
 
 @router.get("/replay/{run_id}/{index}")
-def trade_replay(run_id: str, index: int):
-    """Minute-by-minute underlying, legs and position P&L for one trade of a builder run."""
-    return replay(run_id, index)
+def trade_replay(run_id: str, index: int, member: str | None = None):
+    """Minute-by-minute underlying, legs and position P&L for one trade of a builder run (or a portfolio member's)."""
+    return replay(run_id, index, member)
 
 
 @router.get("")

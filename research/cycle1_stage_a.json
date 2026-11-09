@@ -1,0 +1,772 @@
+{
+ "defaults": {
+  "stage": "A",
+  "source": "lead",
+  "capital": 100000,
+  "periods": [
+   {
+    "key": "is",
+    "label": "In-sample Jan\u2013Jun 2026",
+    "role": "in_sample",
+    "from": "2026-01-01",
+    "to": "2026-06-30"
+   },
+   {
+    "key": "stress",
+    "label": "In-sample, 2\u00d7 slippage",
+    "role": "stress",
+    "from": "2026-01-01",
+    "to": "2026-06-30",
+    "cost_overrides": {
+     "slippage_points": 1.0
+    }
+   }
+  ]
+ },
+ "experiments": [
+  {
+   "name": "Long ATM straddle 09:20\u219215:15 (baseline)",
+   "family": "volatility-long",
+   "hypothesis": "Intraday realized moves in NIFTY exceed what the ATM straddle prices in, so a held long straddle earns money after costs.",
+   "mechanism": "Buyer of volatility; profits only if the day's move beats premium decay plus the variance risk premium sellers demand. Literature (variance risk premium) predicts this LOSES on average; it is the reference point for the volatility family.",
+   "novelty": "Baseline. User's straddle-page runs covered Jul\u2013Oct 2026 with targets; this is the plain held version on the in-sample half only.",
+   "failure_modes": "Rejected if net \u2264 0 or PF < 1.15 in-sample.",
+   "criteria": {
+    "min_trades": 100
+   },
+   "spec": {
+    "name": "Long ATM straddle 09:20",
+    "underlying": "NIFTY",
+    "timeframe": "1m",
+    "schedule": {
+     "entry": {
+      "type": "time",
+      "time": "09:20"
+     }
+    },
+    "position": {
+     "legs": [
+      {
+       "id": "ce",
+       "action": "buy",
+       "instrument": "CE",
+       "strike": {
+        "by": "atm_offset",
+        "value": 0
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      },
+      {
+       "id": "pe",
+       "action": "buy",
+       "instrument": "PE",
+       "strike": {
+        "by": "atm_offset",
+        "value": 0
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      }
+     ]
+    },
+    "exits": {
+     "square_off": "15:15"
+    },
+    "costs": {
+     "brokerage_per_order": 20,
+     "slippage_points": 0.5,
+     "taxes": true
+    }
+   },
+   "priority": 8
+  },
+  {
+   "name": "Iron fly \u00b1400, 09:20\u219215:15, no stop (baseline)",
+   "family": "volatility-short",
+   "hypothesis": "Options are priced with a variance risk premium: a hedged short ATM straddle (iron fly) earns time decay intraday after costs.",
+   "mechanism": "Sellers of insurance are paid a premium above expected realized volatility (documented across index options). Wings cap the loss so 1 lot fits \u20b91L.",
+   "novelty": "Generic-engine iron fly over the 2026 in-sample half with no exits; the user's iron condor runs were Jul\u2013Oct only with stops/targets.",
+   "failure_modes": "Rejected if net \u2264 0 after costs (8 orders/day), or profits come from a handful of days (ex-top-5 \u2264 0).",
+   "criteria": {
+    "min_trades": 100
+   },
+   "spec": {
+    "name": "Iron fly \u00b1400 09:20",
+    "underlying": "NIFTY",
+    "timeframe": "1m",
+    "schedule": {
+     "entry": {
+      "type": "time",
+      "time": "09:20"
+     }
+    },
+    "position": {
+     "legs": [
+      {
+       "id": "sell_ce",
+       "action": "sell",
+       "instrument": "CE",
+       "strike": {
+        "by": "atm_offset",
+        "value": 0
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      },
+      {
+       "id": "sell_pe",
+       "action": "sell",
+       "instrument": "PE",
+       "strike": {
+        "by": "atm_offset",
+        "value": 0
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      },
+      {
+       "id": "buy_ce",
+       "action": "buy",
+       "instrument": "CE",
+       "strike": {
+        "by": "atm_offset",
+        "value": 8
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      },
+      {
+       "id": "buy_pe",
+       "action": "buy",
+       "instrument": "PE",
+       "strike": {
+        "by": "atm_offset",
+        "value": -8
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      }
+     ]
+    },
+    "exits": {
+     "square_off": "15:15"
+    },
+    "costs": {
+     "brokerage_per_order": 20,
+     "slippage_points": 0.5,
+     "taxes": true
+    }
+   },
+   "priority": 7
+  },
+  {
+   "name": "Iron fly \u00b1400, 09:20, stop at 50% of credit",
+   "family": "volatility-short",
+   "hypothesis": "Same premium as the baseline fly, but cutting trend days early improves the loss tail more than it costs in whipsaws.",
+   "mechanism": "Large intraday trends are what hurt short gamma; a combined stop limits them. Pre-registered single stop level (no sweep yet).",
+   "novelty": "Risk variant of the baseline fly (same trade, different exit).",
+   "failure_modes": "Rejected if not better than the baseline fly on net and drawdown together.",
+   "criteria": {
+    "min_trades": 100
+   },
+   "spec": {
+    "name": "Iron fly \u00b1400 09:20 stop 50%",
+    "underlying": "NIFTY",
+    "timeframe": "1m",
+    "schedule": {
+     "entry": {
+      "type": "time",
+      "time": "09:20"
+     }
+    },
+    "position": {
+     "legs": [
+      {
+       "id": "sell_ce",
+       "action": "sell",
+       "instrument": "CE",
+       "strike": {
+        "by": "atm_offset",
+        "value": 0
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      },
+      {
+       "id": "sell_pe",
+       "action": "sell",
+       "instrument": "PE",
+       "strike": {
+        "by": "atm_offset",
+        "value": 0
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      },
+      {
+       "id": "buy_ce",
+       "action": "buy",
+       "instrument": "CE",
+       "strike": {
+        "by": "atm_offset",
+        "value": 8
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      },
+      {
+       "id": "buy_pe",
+       "action": "buy",
+       "instrument": "PE",
+       "strike": {
+        "by": "atm_offset",
+        "value": -8
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      }
+     ]
+    },
+    "exits": {
+     "combined": {
+      "stop": {
+       "unit": "pct",
+       "value": 50
+      }
+     },
+     "square_off": "15:15"
+    },
+    "costs": {
+     "brokerage_per_order": 20,
+     "slippage_points": 0.5,
+     "taxes": true
+    }
+   },
+   "priority": 6
+  },
+  {
+   "name": "Expiry-day (0DTE) iron fly \u00b1300, 09:45\u219215:15",
+   "family": "volatility-short-0dte",
+   "hypothesis": "On expiry day the ATM straddle decays fastest; selling it hedged after the opening volatility settles earns the decay.",
+   "mechanism": "Theta is concentrated on the last day; 09:45 entry skips the opening auction-driven moves.",
+   "novelty": "Restricts to DTE 0, later entry, narrower wings than the baseline fly.",
+   "failure_modes": "Only ~25 expiry days in-sample, so the evidence bar is low power; rejected if net \u2264 0 or losses cluster on trend expiries.",
+   "criteria": {
+    "min_trades": 20
+   },
+   "spec": {
+    "name": "0DTE iron fly \u00b1300 09:45",
+    "underlying": "NIFTY",
+    "timeframe": "1m",
+    "schedule": {
+     "dte": [
+      0
+     ],
+     "entry": {
+      "type": "time",
+      "time": "09:45"
+     }
+    },
+    "position": {
+     "legs": [
+      {
+       "id": "sell_ce",
+       "action": "sell",
+       "instrument": "CE",
+       "strike": {
+        "by": "atm_offset",
+        "value": 0
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      },
+      {
+       "id": "sell_pe",
+       "action": "sell",
+       "instrument": "PE",
+       "strike": {
+        "by": "atm_offset",
+        "value": 0
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      },
+      {
+       "id": "buy_ce",
+       "action": "buy",
+       "instrument": "CE",
+       "strike": {
+        "by": "atm_offset",
+        "value": 6
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      },
+      {
+       "id": "buy_pe",
+       "action": "buy",
+       "instrument": "PE",
+       "strike": {
+        "by": "atm_offset",
+        "value": -6
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      }
+     ]
+    },
+    "exits": {
+     "combined": {
+      "stop": {
+       "unit": "pct",
+       "value": 50
+      }
+     },
+     "square_off": "15:15"
+    },
+    "costs": {
+     "brokerage_per_order": 20,
+     "slippage_points": 0.5,
+     "taxes": true
+    }
+   },
+   "priority": 5
+  },
+  {
+   "name": "Opening-range breakout, ATM option (template)",
+   "family": "momentum-orb",
+   "hypothesis": "A 5m close beyond the 09:15\u201309:30 range starts an intraday trend that pays more than option decay and costs.",
+   "mechanism": "Opening range captures overnight information resolution; breakouts can signal order-flow imbalance (intraday momentum).",
+   "novelty": "Template as published, unoptimized.",
+   "failure_modes": "Rejected if net \u2264 0, or if the stress run flips negative (thin edge).",
+   "criteria": {
+    "min_trades": 60
+   },
+   "spec": {
+    "name": "ORB breakout (09:15\u201309:30)",
+    "underlying": "NIFTY",
+    "timeframe": "5m",
+    "schedule": {
+     "entry": {
+      "type": "signal",
+      "window_start": "09:30",
+      "last_entry": "13:30",
+      "bullish": {
+       "left": {
+        "ind": "price",
+        "field": "close"
+       },
+       "op": "crosses_above",
+       "right": {
+        "ind": "orb",
+        "field": "high"
+       }
+      },
+      "bearish": {
+       "left": {
+        "ind": "price",
+        "field": "close"
+       },
+       "op": "crosses_below",
+       "right": {
+        "ind": "orb",
+        "field": "low"
+       }
+      }
+     },
+     "max_trades_per_day": 1
+    },
+    "position": {
+     "bullish": [
+      {
+       "id": "atm",
+       "action": "buy",
+       "instrument": "CE",
+       "strike": {
+        "by": "atm_offset",
+        "value": 0
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      }
+     ],
+     "bearish_mirror": true
+    },
+    "exits": {
+     "combined": {
+      "target": {
+       "unit": "pct",
+       "value": 40
+      },
+      "stop": {
+       "unit": "pct",
+       "value": 25
+      }
+     },
+     "square_off": "15:15"
+    },
+    "costs": {
+     "brokerage_per_order": 20,
+     "slippage_points": 0.5,
+     "taxes": true
+    }
+   },
+   "priority": 4
+  },
+  {
+   "name": "Supertrend 15m vertical spread (template)",
+   "family": "trend-supertrend",
+   "hypothesis": "15-minute Supertrend flips identify intraday trends; a debit spread captures them with limited decay.",
+   "mechanism": "Trend following on intraday timeframe; spread reduces premium at risk and vega.",
+   "novelty": "Template as published.",
+   "failure_modes": "Rejected if net \u2264 0; flagged if trades are too few.",
+   "criteria": {
+    "min_trades": 40
+   },
+   "spec": {
+    "name": "Supertrend vertical spread",
+    "underlying": "NIFTY",
+    "timeframe": "15m",
+    "schedule": {
+     "entry": {
+      "type": "signal",
+      "window_start": "09:30",
+      "last_entry": "14:00",
+      "bullish": {
+       "left": {
+        "ind": "supertrend",
+        "field": "direction",
+        "params": {
+         "period": 10,
+         "multiplier": 3
+        }
+       },
+       "op": "crosses_above",
+       "right": {
+        "ind": "value",
+        "params": {
+         "value": 0
+        }
+       }
+      },
+      "bearish": {
+       "left": {
+        "ind": "supertrend",
+        "field": "direction",
+        "params": {
+         "period": 10,
+         "multiplier": 3
+        }
+       },
+       "op": "crosses_below",
+       "right": {
+        "ind": "value",
+        "params": {
+         "value": 0
+        }
+       }
+      }
+     },
+     "max_trades_per_day": 2
+    },
+    "position": {
+     "bullish": [
+      {
+       "id": "long",
+       "action": "buy",
+       "instrument": "CE",
+       "strike": {
+        "by": "atm_offset",
+        "value": 0
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      },
+      {
+       "id": "short",
+       "action": "sell",
+       "instrument": "CE",
+       "strike": {
+        "by": "atm_offset",
+        "value": 4
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      }
+     ],
+     "bearish_mirror": true
+    },
+    "exits": {
+     "exit_on_opposite_signal": true,
+     "combined": {
+      "target": {
+       "unit": "pct",
+       "value": 80
+      },
+      "stop": {
+       "unit": "pct",
+       "value": 50
+      }
+     },
+     "square_off": "15:15"
+    },
+    "costs": {
+     "brokerage_per_order": 20,
+     "slippage_points": 0.5,
+     "taxes": true
+    }
+   },
+   "priority": 3
+  },
+  {
+   "name": "Opening gap fade \u22650.3%, ATM debit spread",
+   "family": "meanrev-gap",
+   "hypothesis": "Opening gaps of 0.3%+ in NIFTY partially retrace during the day.",
+   "mechanism": "Overnight news is over-reacted to at the open (liquidity-driven opening prints); market makers fade extremes. Debit spread (ATM / ATM\u00b1200) caps premium.",
+   "novelty": "New family; not in the template set or saved runs.",
+   "failure_modes": "Few trades (gaps \u22650.3% maybe 40\u201360 in 6 months); rejected if net \u2264 0 or one direction carries everything.",
+   "criteria": {
+    "min_trades": 30
+   },
+   "spec": {
+    "name": "Gap fade 0.3% debit spread",
+    "underlying": "NIFTY",
+    "timeframe": "5m",
+    "schedule": {
+     "entry": {
+      "type": "signal",
+      "window_start": "09:15",
+      "last_entry": "09:20",
+      "bullish": {
+       "left": {
+        "ind": "gap_pct"
+       },
+       "op": "<",
+       "right": {
+        "ind": "value",
+        "params": {
+         "value": -0.3
+        }
+       }
+      },
+      "bearish": {
+       "left": {
+        "ind": "gap_pct"
+       },
+       "op": ">",
+       "right": {
+        "ind": "value",
+        "params": {
+         "value": 0.3
+        }
+       }
+      }
+     },
+     "max_trades_per_day": 1
+    },
+    "position": {
+     "bullish": [
+      {
+       "id": "long",
+       "action": "buy",
+       "instrument": "CE",
+       "strike": {
+        "by": "atm_offset",
+        "value": 0
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      },
+      {
+       "id": "short",
+       "action": "sell",
+       "instrument": "CE",
+       "strike": {
+        "by": "atm_offset",
+        "value": 4
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      }
+     ],
+     "bearish_mirror": true
+    },
+    "exits": {
+     "combined": {
+      "target": {
+       "unit": "pct",
+       "value": 60
+      },
+      "stop": {
+       "unit": "pct",
+       "value": 40
+      }
+     },
+     "square_off": "15:15"
+    },
+    "costs": {
+     "brokerage_per_order": 20,
+     "slippage_points": 0.5,
+     "taxes": true
+    }
+   },
+   "priority": 2
+  },
+  {
+   "name": "RSI(14) 15m reversal, ATM option (template)",
+   "family": "meanrev-rsi",
+   "hypothesis": "15m RSI leaving oversold/overbought zones marks intraday reversals worth an ATM option.",
+   "mechanism": "Short-horizon mean reversion after stretched moves.",
+   "novelty": "Template as published.",
+   "failure_modes": "Rejected if net \u2264 0 after costs.",
+   "criteria": {
+    "min_trades": 40
+   },
+   "spec": {
+    "name": "RSI reversal",
+    "underlying": "NIFTY",
+    "timeframe": "15m",
+    "schedule": {
+     "entry": {
+      "type": "signal",
+      "window_start": "09:45",
+      "last_entry": "14:00",
+      "bullish": {
+       "left": {
+        "ind": "rsi",
+        "params": {
+         "period": 14
+        }
+       },
+       "op": "crosses_above",
+       "right": {
+        "ind": "value",
+        "params": {
+         "value": 30
+        }
+       }
+      },
+      "bearish": {
+       "left": {
+        "ind": "rsi",
+        "params": {
+         "period": 14
+        }
+       },
+       "op": "crosses_below",
+       "right": {
+        "ind": "value",
+        "params": {
+         "value": 70
+        }
+       }
+      }
+     },
+     "max_trades_per_day": 2
+    },
+    "position": {
+     "bullish": [
+      {
+       "id": "atm",
+       "action": "buy",
+       "instrument": "CE",
+       "strike": {
+        "by": "atm_offset",
+        "value": 0
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      }
+     ],
+     "bearish_mirror": true
+    },
+    "exits": {
+     "combined": {
+      "stop": {
+       "unit": "pct",
+       "value": 30
+      },
+      "trailing": {
+       "activate": {
+        "unit": "pct",
+        "value": 30
+       },
+       "trail": {
+        "unit": "pct",
+        "value": 15
+       }
+      }
+     },
+     "square_off": "15:15"
+    },
+    "costs": {
+     "brokerage_per_order": 20,
+     "slippage_points": 0.5,
+     "taxes": true
+    }
+   },
+   "priority": 1
+  }
+ ]
+}

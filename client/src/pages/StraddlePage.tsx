@@ -32,7 +32,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { errorMessage, useJob, useRun, useStartStraddle, useUpdateRun, type T_StraddleRequest, type T_StraddleResult } from "../api/client";
+import { errorMessage, useDataStatus, useJob, useRun, useStartStraddle, useUpdateRun, type T_StraddleRequest, type T_StraddleResult } from "../api/client";
 import type { T_ReportInfo } from "../lib/report";
 import {
   bestTargetPerDte,
@@ -55,6 +55,7 @@ import {
   type T_StraddleRules,
   type T_StraddleTrade,
 } from "../lib/straddleSim";
+import { DEFAULT_SHORT_MARGIN_PCT } from "../lib/fees";
 import PageTitle from "../components/PageTitle";
 import { backtestCrumb } from "../lib/nav";
 import SectionCard from "../components/SectionCard";
@@ -722,6 +723,9 @@ function TradesTable({ trades, side }: { trades: T_StraddleTrade[]; side: T_Side
         { title: "Strike", dataIndex: "atm", render: (v: number) => <Text style={mono}>{v}</Text> },
         { title: "CE / PE entry", align: "right", render: (_, t) => <Text className="text-xs">{`${t.ce_entry.toFixed(2)} / ${t.pe_entry.toFixed(2)}`}</Text> },
         { title: sell ? "Premium collected" : "Premium paid", dataIndex: "capital", align: "right", render: (v: number) => inr(v) },
+        ...(sell
+          ? [{ title: "Margin blocked", dataIndex: "margin", align: "right" as const, render: (v: number) => <Text type="secondary">≈ {inr(v)}</Text> }]
+          : []),
         {
           title: "Levels",
           render: (_, t) => (
@@ -746,6 +750,7 @@ function TradesTable({ trades, side }: { trades: T_StraddleTrade[]; side: T_Side
         { title: "Costs", dataIndex: "costs", align: "right", render: (v: number) => inr(v) },
         { title: "Net P&L", dataIndex: "pnl", align: "right", sorter: (a, b) => a.pnl - b.pnl, render: (v: number) => <Pnl value={v} /> },
         { title: "% of premium", dataIndex: "pnl_pct", align: "right", render: (v: number) => pct(v) },
+        ...(sell ? [{ title: "% of margin", dataIndex: "pnl_margin_pct", align: "right" as const, render: (v: number) => pct(v, 2) }] : []),
       ]}
     />
   );
@@ -799,7 +804,12 @@ function StraddleLab({
   const { days, entries: loaded } = useMemo(() => normalizeStraddleDays(result.days, result.params), [result]);
   // Only entry times that produced at least one trade day.
   const entries = useMemo(() => loaded.filter((e) => days.some((d) => d.entries[e])), [loaded, days]);
-  const params = result.params as T_StraddleParams;
+  const dataStatus = useDataStatus();
+  const shortMarginPct = dataStatus.data?.settings.short_margin_pct;
+  const params = useMemo(
+    () => ({ ...(result.params as T_StraddleParams), short_margin_pct: shortMarginPct }),
+    [result.params, shortMarginPct],
+  );
   const allDtes = useMemo(() => [...new Set(days.map((d) => d.dte))].sort((a, b) => a - b), [days]);
 
   const [rules, setRules] = useState<T_StraddleRules>(() => {
@@ -864,6 +874,13 @@ function StraddleLab({
           value={inr(m.avg_capital)}
           hint={sell ? "Most you can make on a day; losses aren't capped" : "Also the most you can lose on a day"}
         />
+        {sell && (
+          <StatCard
+            label="Margin blocked"
+            value={`≈ ${inr(m.peak_margin)}`}
+            hint={`Exchange margin to sell, ~${shortMarginPct ?? DEFAULT_SHORT_MARGIN_PCT}% of spot × qty (estimate). Return on it: ${pct(m.return_on_margin_pct)}`}
+          />
+        )}
         <StatCard label="Max drawdown" value={inr(m.max_drawdown)} hint={`Best day ${signedInr(m.best)} · worst ${signedInr(m.worst)}`} />
         <StatCard label="Profit factor" value={m.profit_factor?.toFixed(2) ?? "–"} hint="Gross wins ÷ gross losses, after costs" />
       </div>

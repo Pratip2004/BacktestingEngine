@@ -24,7 +24,7 @@ cd client && npm install && npm run dev   # http://localhost:5173
 
 React 19 + Vite + TypeScript + **Ant Design v5** + Tailwind v4 + React Query + Recharts. SaaS look: Inter (`@fontsource-variable/inter`), indigo `#4F46E5` primary, slate palette, dark sidebar (`#0B1220`); theme tokens in `main.tsx`.
 
-- **Shell (`App.tsx`)**: dark grouped sidebar (Research: Overview, Backtest, Options analytics · Data: Data store, Market data · Account: Account, Session) with a Breeze/call-budget card at the bottom; header with a ⌘K / Ctrl+K **command palette** (`components/CommandPalette.tsx`: pages, actions, saved runs) and a New backtest button.
+- **Shell (`App.tsx`)**: dark grouped sidebar (Research: Research lab, Overview, Backtest, Options analytics · Data: Data store, Market data · Account: Account, Session) with a Breeze/call-budget card at the bottom; header with a ⌘K / Ctrl+K **command palette** (`components/CommandPalette.tsx`: pages, actions, saved runs) and a New backtest button.
 
 - Vite proxies `/api/*` → `http://localhost:8000/*` (prefix stripped), so the backend needs no CORS. See `client/vite.config.ts`.
 - antd's CSS-in-JS goes into the `antd` cascade layer (`<StyleProvider layer>` in `main.tsx`, layer order in `index.css`), so Tailwind utilities override antd while Tailwind's preflight doesn't. `@ant-design/v5-patch-for-react-19` is imported first for React 19 compatibility.
@@ -34,11 +34,13 @@ React 19 + Vite + TypeScript + **Ant Design v5** + Tailwind v4 + React Query + R
 
 | Route | Page | Backend calls |
 |---|---|---|
+| `/research` | Research lab: phase, runner (pause/resume), team, now-running progress, candidate leaderboard, all experiments, detail drawer (`?exp=`: hypothesis, criteria, per-period stats, checks, equity/drawdown, cost waterfall, monthly, by hour, audit/critic notes, spec), timeline, protocol | `/research/*` |
 | `/` | Overview: getting-started checklist (login → download data → first backtest), KPIs, quick-start tiles, recent runs | `/auth/status`, `/data/status`, `/runs` |
 | `/data` | Data store: stats, downloader (state, jobs, pause/resume, retry failed, cancel), backfill planner (estimate calls/ETA, start), 12-month coverage calendar per underlying with per-day contract drawer, settings | `/data/*` |
-| `/backtest` | Hub with tabs (`BacktestHub.tsx`, nested routes): `/backtest/strategies`, `/backtest/builder`, `/backtest/straddle`, `/backtest/ema-butterfly`, `/backtest/stock`, `/backtest/saved` (`/backtest/compare` highlights Saved runs). `/backtest` → `/backtest/strategies` (or `/backtest/stock` when it has `?run=`). Old `/straddle`, `/option-strategy`, `/runs` redirect with their query string. Breadcrumb `backtestCrumb` in `lib/nav.ts` | – |
+| `/backtest` | Hub with tabs (`BacktestHub.tsx`, nested routes): `/backtest/strategies`, `/backtest/builder`, `/backtest/portfolio`, `/backtest/straddle`, `/backtest/ema-butterfly`, `/backtest/stock`, `/backtest/saved` (`/backtest/compare` highlights Saved runs). `/backtest` → `/backtest/strategies` (or `/backtest/stock` when it has `?run=`). Old `/straddle`, `/option-strategy`, `/runs` redirect with their query string. Breadcrumb `backtestCrumb` in `lib/nav.ts` | – |
 | `/backtest/strategies` | Saved strategies (open, delete) + templates gallery by category | `/strategies`, `/strategies/templates` |
 | `/backtest/builder` | Visual builder (`?template=`, `?strategy=`, `?run=`; priority strategy > run > template > blank): 5 steps (Basics, Entry, Legs, Exits, Costs) in `components/builder/`, side panel with plain-English summary, payoff, checks, period + data check + run; save / save as new (versioned). Results (`StrategyResults`) with per-trade Replay drawer, then Optimize (`SweepPanel`: 1–2 parameters, ≤36 combinations, optional walk-forward, heatmaps, "Use it" applies the best cell) | `/strategies/*`, `/options/jobs/{id}` |
+| `/backtest/portfolio` | Strategy portfolio (`?portfolio=`, `?run=`): bucket of up to 12 algos (saved strategy or template, × lots, on/off), each with a gate (Always / market regime checkboxes / indicator conditions via `ConditionBuilder`, daily tf). Results (`components/portfolio/PortfolioResults`): Portfolio tab (KPIs incl. return/DD % of capital, peak open positions & combined margin; equity total + per algo with drawdown; algos table; P&L by regime × algo; daily P&L correlation; monthly matrix; all trades with Algo column and replay) plus one tab per algo with its full `StrategyResults` | `/portfolios/*`, `/options/jobs/{id}` |
 | `/backtest/saved` | Saved runs: every saved run (filter by strategy, search, rename inline, open, download PDF, delete), per-strategy counts and combined net P&L. Select 2–4 → Compare | `/runs` |
 | `/backtest/compare?ids=` | Compare 2–4 runs: metrics table (builder runs full metrics, others their summary), equity overlay for builder runs | `/runs/{id}` |
 | `/backtest/stock` | Strategy form (params from `/backtest/strategies`), metrics, equity vs buy & hold chart, trades | `POST /backtest` |
@@ -98,16 +100,32 @@ app/routers/runs.py         /runs/*
 app/data/instruments.py     NIFTY / SENSEX config: ICICI codes, exchanges, strike step, dated expiry weekday + lot size rules
 app/data/store.py           DuckDB store (.data/market.duckdb): spot_1m, fut_1m, opt_1m, fetch_log, ingest_queue, settings, calls, lot_sizes, cost_schedule
 app/data/access.py          option_minute_bars / spot_minute_bars: read the store, fetch only missing contract-days; resample
-app/data/ingest.py          backfill planner, background worker (budget, retries), nightly job, import of old JSON caches
+app/data/daily.py           daily_bars(): daily candles (NIFTY, BSESEN, INDVIX = India VIX) in daily_1d, long history for 1d/1w indicators
+app/data/ingest.py          backfill planner (include_options=False → spot + futures only), background worker (budget, retries), nightly job, import of old JSON caches
 app/routers/data.py         /data/*
 app/strategy/spec.py        StrategySpec v1 (Pydantic): schedule, position/legs, exits, risk, costs; validate_spec() → errors, warnings
+app/strategy/indicators.py  extended indicator REGISTRY (TradingView-style; @register name/lookback/fields), GET /strategies/indicators
+app/strategy/margin.py      margin_required(): money blocked per trade (premium for buys, max loss for hedged, % of spot × qty for shorts/futures; settings short_margin_pct / fut_margin_pct)
+app/strategy/regimes.py     market regime models (trend_vol / trend / vol) from daily candles + VIX, fixed textbook thresholds
 app/strategy/signals.py     indicators (EMA/SMA/RSI/VWAP/MACD/Supertrend/BBands/ATR/ORB/prev-day/gap…) on 09:15-anchored candles, no lookahead; signal_times()
 app/strategy/engine.py      generic engine run_strategy(spec, from, to): intrabar (up/down scenarios) or candle-close exits, per-leg + combined + trailing, re-entry, day risk, DatedCosts
 app/strategy/templates.py   10 templates (straddles, strangle, condor, iron fly, EMA butterfly, ORB, Supertrend spread, RSI)
 app/strategy/library.py     saved strategies in .data/strategies/{id}.json with versions
-app/strategy/analysis.py    replay() one trade minute by minute; sweep() 1–2 parameter grid, optional walk-forward
+app/strategy/swing.py       SwingEngine(Engine): multi-day holding (holding.mode swing): entries by time / intraday signal / 1d-1w signal (next day at next_day_time), exits at holding.check closes across days, underlying stop every minute (gap-aware), max_days / exit_before_expiry / period end, per-trade daily_mtm
+app/strategy/portfolio.py   PortfolioSpec (members: strategy_id or inline spec, lots, gate, enabled), gated_spec() ANDs a gate into entries, run_portfolio() runs members and combines them (daily MTM, equity, correlation, monthly, by regime, concurrency); saved portfolios in .data/portfolios/
+app/routers/portfolios.py   /portfolios/*
+app/strategy/analysis.py    replay() one trade minute by minute (portfolio runs: ?member=; multi-day trades: every day held); sweep() 1–2 parameter grid, optional walk-forward
 app/routers/strategies.py   /strategies/*
 app/routers/options.py      /options/*
+app/research/ledger.py      research ledger in .data/research/ (experiments/{id}.json, events.jsonl, state.json); fingerprint / economic_key duplicate detection
+app/research/evaluate.py    research metrics (capital/margin, all-day Sharpe, cost split, block bootstrap, top-5% / worst-day tests) and gates
+app/research/runner.py      background thread: runs queued experiments period by period via run_strategy, saves each as a `custom` run
+app/research/screen.py      offline screening on a store snapshot (agents), screens.jsonl look log
+app/research/playbook.py    walk-forward regime playbook (quarterly best algo per regime, confirm via gated portfolios)
+app/research/cli.py         `python -m app.research.cli queue research/<file>.json | status | show E0001` (talks to the running server)
+app/routers/research.py     /research/*
+research/                   experiment definitions per cycle (JSON, queued with the CLI)
+tests/                      pytest (`.venv/bin/python -m pytest tests`); store access is faked, so they run while the server holds the DB
 client/                     React dashboard (see Frontend below)
 ```
 
@@ -150,6 +168,16 @@ client/                     React dashboard (see Frontend below)
 | POST | `/strategies/sweep` | same | `{spec, from_date, to_date, params[{path,label,values}], walk_forward, in_sample_pct}` → job (≤36 combinations) |
 | GET | `/strategies/replay/{run_id}/{index}` | same | Trade replay: underlying, leg closes, position P&L on one timeline |
 | GET/POST | `/strategies`; GET/PUT/DELETE `/strategies/{id}` | – | Saved strategy library (PUT adds a version) |
+| GET | `/market/margin-check?underlying=&lots=` | `get_quotes`, `margin_calculator` (places nothing) | Live ATM short straddle: Breeze margin vs the backtest estimate; `implied_pct` to calibrate `short_margin_pct` |
+| GET | `/strategies/indicators` | – | Built-in + extended indicator catalogue |
+| POST | `/portfolios/validate` | – | `{portfolio}` → `{ok, errors[{member,message}], warnings, portfolio}` (each member checked with its gate applied) |
+| POST | `/portfolios/run` | via the engine | `{portfolio, from_date, to_date, portfolio_id?}` → job; result saved as a `portfolio` run |
+| GET/POST | `/portfolios`; GET/PUT/DELETE `/portfolios/{id}` | – | Saved portfolios |
+| GET | `/research/regimes?underlying=&start=&end=&model=` | `get_historical_data_v2` 1day (cached) | Daily regime labels + counts |
+| GET | `/research/status` | – | Phase, agents, runner, counts, current progress, calls today, recent events |
+| GET | `/research/playbooks`, `/research/playbooks/{id}` | – | Saved walk-forward regime playbook runs |
+| GET/POST | `/research/experiments`; GET/PATCH `/research/experiments/{id}` | via the engine | Create (409 on exact duplicate), list, detail; PATCH verdict / notes / `add_periods` / `rerun` (archives old results) |
+| GET/POST | `/research/events`; PATCH `/research/state`; POST `/research/runner/{pause,resume}` | – | Timeline, program state, runner control |
 | GET | `/backtest/strategies` | – | Lists strategies + default params |
 | POST | `/backtest` | `get_historical_data_v2` | Runs a strategy over fetched candles |
 
@@ -197,11 +225,39 @@ The user's second strategy, as agreed (buy side first, then a sell side on the s
 - **fetch_log** records every contract-day ever requested as `ok`, `empty` (a real answer, never retried) or `failed`. Spot/futures rows use sentinels (`expiry 1970-01-01`, `strike 0`, `right '-'`). Today's candles are stored but not logged (the day isn't over).
 - **Reads** (`app/data/access.py`): `option_minute_bars` / `spot_minute_bars` read the store and fetch only missing days. A call covers ≤ 2 **consecutive weekdays** (`chunk_days`), because a call spans every day between its ends and Breeze caps at 1000 candles. `options_engine.leg_bars` resamples 1-minute to 5/30-minute (start-labelled, like Breeze). The straddle and butterfly engines now use this; the old `.cache/options_intraday` and `.cache/spot_intraday` JSON caches are imported once at startup (`import_json_caches`, 1-minute files only) and no longer written.
 - **Downloader** (`app/data/ingest.py`): `plan_backfill` uses each day's open (daily candles) to pick strikes ATM ± `strike_band` (default 40) for the nearest `expiries_ahead` (2) weeklies (+ monthly optional) and the current-month future. It skips stored/queued contract-days, groups consecutive weekdays into one call, and returns calls + ETA. The worker thread works `ingest_queue` by priority, waits while logged out / paused / over `daily_budget` (default 4,000; every Breeze call is counted via `breeze.on_call`), and retries a failure 3× before marking it failed. The nightly job (default 16:15 IST, weekdays) queues today's data at high priority. Tasks left `running` at shutdown are re-queued at startup.
-- **Dated rules** in `instruments.py` (seeded into `lot_sizes`): NIFTY expiry Thursday → Tuesday from 1 Sep 2025; SENSEX Friday → Tuesday (1 Jan 2025) → Thursday (1 Sep 2025); lot sizes NIFTY 25 → 75 (20 Nov 2024) → 65 (30 Dec 2025, verify against the circular), SENSEX 10 → 20. `cost_schedule` holds STT 0.0625% → 0.1% from 1 Oct 2024. Phase 2's engine will read these tables.
+- **Dated rules** in `instruments.py` (seeded into `lot_sizes`): NIFTY expiry Thursday → Tuesday from 1 Sep 2025; SENSEX Friday → Tuesday (1 Jan 2025) → Thursday (1 Sep 2025); lot sizes NIFTY 25 → 75 (20 Nov 2024) → 65 (30 Dec 2025, verify against the circular), SENSEX 10 → 20. `cost_schedule` holds STT 0.0625% → 0.1% from 1 Oct 2024 → 0.15% from 1 Apr 2026 (Budget 2026-27). Phase 2's engine will read these tables.
 
 ### Saved backtests and PDF reports
 - **Saving**: every backtest is saved automatically. `POST /backtest` saves synchronously; the butterfly and straddle jobs are wrapped with `runs.saving(...)`. Results carry `run_id`, and the page puts `?run=<id>` in the URL. Opening `?run=<id>` loads the saved result and refills the config form from its params. The interactive exit settings (`view`) and the headline metrics under them (`summary`) are PATCHed back (debounced) as they change, so a run reopens as left and the Backtests list shows current numbers. Storage is `.data/runs/` (gitignored; `make clear-cache` doesn't touch it).
 - **PDF**: `ReportScope` (components) wraps a result with a "Download PDF" bar; `lib/report.ts` captures each **outermost `[data-report-section]`** (every `SectionCard`, plus stat grids / two-up chart rows marked explicitly) with html-to-image and lays them out on A4 with jsPDF. A section that doesn't fit starts a new page; taller ones are sliced. Sections that scroll sideways are widened during capture so wide tables are complete. While capturing, `usePrintMode()` is true, so tables drop pagination and print every row. Interactive controls aren't sections; their values go in the report heading (`reportInfo()` per page: strategy title, period, settings). Built-in PDF fonts lack ₹, → and −, so heading text goes through `pdfText()`. `?pdf=1` (used by the list's download button) auto-downloads once the page renders.
+
+### Research program (`app/research/`, page `/research`)
+An autonomous research loop on top of the generic engine. Experiments (hypothesis, mechanism, spec, periods, pre-registered criteria) live in `.data/research/experiments/`; the runner thread works the queue one period at a time (restart-safe: finished periods are kept, `running` → `queued` at startup), saves every period as a `custom` run linked by `experiment_id`, and computes `evaluate()` metrics + `checks()` / `experiment_gates()`. A period's fingerprint (canonical spec + dates + cost overrides + `ENGINE_VERSION`) is reused across experiments; bump `ENGINE_VERSION` in `engine.py` whenever a change can alter results. Verdicts are set by the lead (PATCH), never automatically. The protocol (discovery Sep 2025–Jun 2026 in two halves, gates, locked holdout 1 Jul–26 Oct 2026) is in `state.protocol`. Editing any `.py` file reloads the dev server and interrupts the running period (it is re-queued).
+
+### Spec extensions, multi-day engine, portfolios (27 Oct 2026; see docs/HANDOVER.md)
+- Timeframes `1d` / `1w` (daily store, 3 years of warm-up); operands take `shift`, `mul`, `add`, and `params.symbol` (e.g. `VIX`) on 1d/1w; ops `==` / `!=`; operands `weekday`, `dte`, `regime` (`params.model`).
+- Time entries may be directional (bullish / bearish conditions read on the latest closed candle at the entry time) and gated by `entry.filter`.
+- **Margin**: every engine trade carries `margin`, `margin_basis`, `pct_margin` (net ÷ margin); metrics `avg_margin`, `peak_margin`, `return_on_margin_pct`. Selling an option blocks exchange margin (~₹1.5–2.5L/lot), not the premium; `capital`/`pct` stay premium-based (used by % target/stop levels). The straddle lab mirrors it in `client/src/lib/fees.ts` (also dated option rates; the butterfly engine uses `DatedCosts` too).
+- `ExpirySel.min_days`; `Costs.fut_slippage_points`; futures use `fut_cost_schedule` (STT 0.05% from 1 Apr 2026). Cost and lot-size rows are code-defined and rewritten at startup.
+- **Multi-day (swing)**: `holding` (mode `swing`, max_days, exit_time, exit_before_expiry, check) runs on `app/strategy/swing.py`. Exits are checked at `holding.check` candle closes on every day held (`exits.evaluation` / `square_off` don't apply); `exits.underlying_stop` (ATR or points, trailing, ATR target) every index minute, filled at the next minute's open or at a gapped open. Signals on 1d/1w candles (entries and exits) act the next trading day at `entry.next_day_time`, never at the close that produced them. One position at a time per spec. Validation: defined risk overnight, futures need a stop; underlying stop is rejected on intraday specs.
+- Swing trades carry `daily_mtm` (P&L per day held, sums to net) and `hold_days`; `_metrics` / `daily_pnl()` use it, so drawdown and Sharpe are on daily mark-to-market. Results also carry `daily`.
+- **Several trades a day**: signal entries (up to `max_trades_per_day`), and time entries with `entry.times` (several fixed times; one position at a time; not with prev_day).
+- Time-entry `filter` / directional conditions read the latest closed candle at or before the entry, which may be the previous session's (engine 4), so early entries can be gated on daily regime / VIX.
+- `ENGINE_VERSION = 4`: monthly expiry by nominal month (`_monthly`: a holiday-shifted weekly like 30 Apr 2025 isn't April's monthly), and the filter timing above.
+- **Indicator library** (`app/strategy/indicators.py`): 44 TradingView-style indicators (moving averages, oscillators, trend, regime, levels), each causal and covered by a future-perturbation test (`tests/test_indicator_library.py`); `Operand.field` is validated against the registry.
+- **Portfolios** (`app/strategy/portfolio.py`, page `/backtest/portfolio`): several algos backtested together, each gated (gate ANDed into its entry conditions, no lookahead). Members run independently; no cross-member rules yet (e.g. a portfolio-wide daily loss limit).
+
+### Cycle 4 additions (28 Oct 2026; see docs/HANDOVER.md §9)
+- **Offline screening** (`app/research/screen.py`): agents run the real engine in their own process on a read-only store copy. `python -m app.research.screen snapshot` refreshes `.data/snapshots/market.duckdb`; then run with `PYTHONPATH=. MARKET_DB=.data/snapshots/market.duckdb BACKTEST_OFFLINE=1 [SCREEN_TRAIN_END=YYYY-MM-DD]`. `BACKTEST_OFFLINE=1` never calls Breeze or imports the SDK (it downloads its master file on import); missing data reads as no candles and is counted (`summary.missing_data`, `warning` when > 10% of entries are skipped). `SCREEN_TRAIN_END` refuses later dates. Every screen appends to `.data/research/screens.jsonl`, which `program_looks()` counts. One process ≈ 250 MB: run screens sequentially.
+- **The engine calendar** comes from the daily store (`daily_bars`), not a Breeze call per run.
+- **Walk-forward regime playbook** (`app/research/playbook.py`, `research/cycle4/playbook_run.py`, `GET /research/playbooks[/{id}]`, Research lab section "Regime playbook"): quarterly expanding-window choice of the best candidate per `trend_vol` regime from trades closed before the quarter; stitched out-of-sample result, baselines, hindsight bound, and `confirm()` re-runs the choices as real regime-gated portfolios.
+- **Spec**: `Group.min` (with `any`: at least N of the conditions, a vote); `exits.exit_bullish` / `exits.exit_bearish` (separate exits for long / short trades); `exits.underlying_stop` now also intraday (first index minute through the level → next minute's open).
+- **Engine 6**: daily ATR for underlying stops covers the whole period (was frozen at the first day); swing signal exits act at their own time (a daily exit at `next_day_time`), not at the next `holding.check`. `evaluate()` uses daily mark-to-market and tolerates trades on days without index candles.
+- **Margin**: futures legs aren't counted as premium paid (margin ≈ 12% of contract value).
+- **Data**: NIFTY spot + futures 2021-01 → now (current month + next month in the last 10 sessions before expiry, `NEXT_FUT_DAYS`); SENSEX futures sparse before mid-2024; options are only what earlier runs fetched (sparse). NIFTY lot 75 before 30 Jul 2021 (date approximate).
+- **Paper watch** (`app/research/paper.py`, `GET/POST /research/paper`, `POST /research/paper/{id}/refresh`, `DELETE /research/paper/{id}`, Research lab section "Paper watch"): watchlisted experiments or saved buckets (`portfolio_id`) are re-run every weekday from a start date to the last completed session (thread started by the research runner), saved as runs, with the entry condition's state at the last close (vote count per condition; per member for buckets). Never orders. State in `.data/research/paper.json`.
+- **History**: NIFTY spot + futures now from 2015 (lot 25 → 75 from the Nov 2015 series, approximate). Option backfill NIFTY ATM ± 10, nearest 2 weeklies, 2025 → Oct 2026 is queued (~19.8k calls, ~4–5 days of budget).
+- **Experiments**: `criteria.program_bar: false` uses the fixed `min_t_stat` (a pre-registered test run once) instead of √(2 ln N); gates read `test_a`/`test_b` and `test_2x`; the leaderboard reads `is`/`pooled`/`train`, `holdout`/`test`, `stress`/`stress_2x`/`test_2x`. `research/cycle4/queue_tests.py <hand-in.json> [--train-from=2021-01-01]` queues an agent's candidates with the protocol-v4 periods.
 
 ### Adding a strategy
 Add a function `fn(df, **params) -> pd.Series` (values 1/0, same index as `df`) to `app/backtest/strategies.py` and register it in `STRATEGIES`. Keyword defaults show up in `/backtest/strategies`. The engine shifts signals by one bar, so strategies may use the current bar's close.
@@ -301,4 +357,5 @@ Add a function `fn(df, **params) -> pd.Series` (values 1/0, same index as `df`) 
 - Go through `breeze.call(method, **kwargs)` so errors are unwrapped consistently. Use `breeze.historical_df()` for candles.
 - Backtests must avoid lookahead: signals act on the next bar.
 - Use `.venv`; pin new dependencies in `requirements.txt`.
+- Fills are floored at one tick (`TICK`); combined intrabar exits interpolate every leg inside its own candle (`fill_to`), and combined targets pay slippage. Muhurat sessions (`SPECIAL_SESSIONS`) aren't trading days.
 - New backtest pages: save via `runs`, read `?run=`, wrap results in `ReportScope` with a `reportInfo()` heading, and mark report sections.

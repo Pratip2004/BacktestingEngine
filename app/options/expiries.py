@@ -14,7 +14,6 @@ from functools import lru_cache
 from zipfile import ZipFile
 
 import requests
-from breeze_connect import config as breeze_config
 
 from app.config import BASE_DIR
 from app.data.instruments import underlying
@@ -32,6 +31,7 @@ def _security_master(file: str = "FONSEScripMaster.txt") -> str:
     stem = file.removesuffix(".txt")
     path = CACHE_DIR / f"{stem}_{date.today():%Y%m%d}.txt"
     if not path.exists():
+        from breeze_connect import config as breeze_config  # lazy: importing the SDK package downloads its master file
         resp = requests.get(breeze_config.SECURITY_MASTER_URL, timeout=120)
         resp.raise_for_status()
         with ZipFile(io.BytesIO(resp.content)) as z:

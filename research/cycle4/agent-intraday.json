@@ -1,0 +1,621 @@
+{
+ "agent": "agent-intraday",
+ "screens_run": 38,
+ "notes": "38 screens on NIFTY futures 2023-01..2024-12 (1 lot, \u20b920/order, 1pt fut slippage, dated taxes). Ungated always-on intraday styles all lose: 15m Supertrend \u2212184k (t \u22123.2), VWAP cross+slope \u2212260k, ORB 30m \u2212174k, Donchian 30m \u2212132k, Keltner fade \u2212194k, W%R fade \u2212171k, BB fade \u221241k, gap go/fade, opening drive all negative; costs are ~4-5 pts/round trip and the faster signals have gross edge \u22640. Slower signals are ~breakeven (ST30 +22k, ST60 +30k, EMA9x21 30m +21k, all t<0.8, ex-top-k negative). Per-regime tables were mostly noisy and inconsistent across styles (e.g. ungated ST30 positive in calm regimes 1/3/5 and negative in volatile 4/6, but EMA30 the reverse); the only regime pattern repeated across variants was that daily-trend-aligned trend entries lose in regime 2 (up/volatile), n\u22485 each. The one thing that worked was aligning the intraday entry with the DAILY trend (1d close vs 1d EMA20): ST30 aligned +47.5k, PF 1.81, t 1.8, both years positive, survives 2\u00d7 slippage (+42k) and ex-top-k (+17.5k); 2024H1 was \u221213k. Alternative daily trend definition (1d Supertrend) +31k; EMA50 alignment \u22480; 15m \u221221k; 60m +7k, so the edge is real-ish only around 30m/EMA20. Pullback-in-trend variants: RSI15 \u221244k, BB15 +39k (t 0.75, ex-top-k \u221261k, profit all in regime 4 / 2024H2 \u2192 not submitted). ORB with daily alignment or after a narrow day still negative. Lot size changes (50\u219225\u219275) were handled by the engine; average net \u224817 pts/trade for candidate 1.",
+ "platform_issues": [
+  "spot_move_points is symmetric (exits on a move of N points either way), so on intraday futures it acts as both stop AND target. Directional intraday stops are only possible via combined.stop in points/rupees; exits.underlying_stop (ATR/trailing) is rejected for intraday specs ('applied in multi-day holding only'). An ATR-sized, one-sided, optionally trailing underlying stop for intraday would help trend strategies.",
+  "exit_on_opposite_signal re-uses the full opposite entry condition, including any filters/gates in it (e.g. daily alignment), so with filtered entries it almost never fires; a separate neutral exit_signal is needed to express 'exit on opposite Supertrend flip'. Worth documenting.",
+  "A handful of contract-day chunks missing in the snapshot for futures (missing_data 1-7 per 30m/60m screen in 2023-24), small."
+ ],
+ "candidates": [
+  {
+   "name": "ST30 trend-aligned futures, \u00b180pt bracket",
+   "family": "intraday-fut-trend",
+   "instrument": "futures",
+   "hypothesis": "Intraday 30m Supertrend(10,3) flips that agree with the daily trend (prior daily close vs 1d EMA20) continue for the rest of the session; flips against the daily trend are noise.",
+   "mechanism": "Institutional flows that build a multi-day trend tend to resume intraday after pullbacks; a 30m flip in the trend direction marks the pullback ending. Requiring the daily alignment removes ~60% of 30m flips (counter-trend ones, which lost) and leaves ~30 trades/yr with ~20 pts average, enough to clear ~5-8 pts of round-trip costs.",
+   "failure_modes": "Choppy, mean-reverting intraday tape (as in H1 2026 per HANDOVER) where flips reverse; sharp V-reversals of the daily trend; up/volatile regime (2) lost in every aligned variant (small n). Neighbourhood is not flat: 1d EMA50 alignment ~0, 15m negative, 60m weak positive. Note spot_move_points is symmetric, so \u00b180 index points acts as both stop and target (most wins are the +80 exit).",
+   "regimes_expected": [
+    1,
+    3,
+    4,
+    5,
+    6
+   ],
+   "spec": {
+    "name": "ST30 aligned 1dEMA20",
+    "underlying": "NIFTY",
+    "timeframe": "30m",
+    "schedule": {
+     "entry": {
+      "type": "signal",
+      "bullish": {
+       "all": [
+        {
+         "left": {
+          "ind": "supertrend",
+          "field": "direction",
+          "params": {
+           "period": 10,
+           "multiplier": 3
+          }
+         },
+         "op": "crosses_above",
+         "right": {
+          "ind": "value",
+          "params": {
+           "value": 0
+          }
+         }
+        },
+        {
+         "left": {
+          "ind": "price",
+          "tf": "1d"
+         },
+         "op": ">",
+         "right": {
+          "ind": "ema",
+          "tf": "1d",
+          "params": {
+           "period": 20
+          }
+         }
+        }
+       ]
+      },
+      "bearish": {
+       "all": [
+        {
+         "left": {
+          "ind": "supertrend",
+          "field": "direction",
+          "params": {
+           "period": 10,
+           "multiplier": 3
+          }
+         },
+         "op": "crosses_below",
+         "right": {
+          "ind": "value",
+          "params": {
+           "value": 0
+          }
+         }
+        },
+        {
+         "left": {
+          "ind": "price",
+          "tf": "1d"
+         },
+         "op": "<",
+         "right": {
+          "ind": "ema",
+          "tf": "1d",
+          "params": {
+           "period": 20
+          }
+         }
+        }
+       ]
+      },
+      "last_entry": "14:30",
+      "window_start": "09:15"
+     },
+     "max_trades_per_day": 2
+    },
+    "position": {
+     "bullish": [
+      {
+       "id": "fut",
+       "action": "buy",
+       "instrument": "FUT",
+       "expiry": {
+        "by": "monthly",
+        "n": 0
+       }
+      }
+     ],
+     "bearish_mirror": true
+    },
+    "exits": {
+     "evaluation": {
+      "mode": "close",
+      "every": "30m"
+     },
+     "pnl_basis": "gross",
+     "square_off": "15:15",
+     "exit_on_opposite_signal": true,
+     "spot_move_points": 80
+    },
+    "costs": {
+     "brokerage_per_order": 20,
+     "slippage_points": 0.5,
+     "fut_slippage_points": 1.0,
+     "taxes": true
+    }
+   },
+   "gate_suggestion": {
+    "left": {
+     "ind": "regime",
+     "tf": "1d",
+     "params": {
+      "model": "trend_vol"
+     }
+    },
+    "op": "!=",
+    "right": {
+     "ind": "value",
+     "params": {
+      "value": 2
+     }
+    }
+   },
+   "train": {
+    "summary": {
+     "trades": 61,
+     "net_pnl": 47533.35,
+     "profit_factor": 1.81,
+     "win_rate": 63.9,
+     "t_stat": 1.8,
+     "sharpe": 1.28,
+     "max_drawdown": -19075.64,
+     "max_drawdown_pct": -3.57,
+     "worst_day": -5297.73,
+     "net_ex_top_k": 17515.72,
+     "expectancy": 779.24,
+     "costs_total": 19532.9,
+     "peak_capital_required": 221307.3,
+     "return_on_margin_pct": 21.48,
+     "days_traded": 61,
+     "skipped": 0,
+     "missing_data": 1
+    },
+    "by_year": {
+     "2023": {
+      "trades": 28,
+      "net": 31406.48,
+      "wins": 19
+     },
+     "2024": {
+      "trades": 33,
+      "net": 16126.87,
+      "wins": 20
+     }
+    },
+    "by_half": {
+     "2023H1": 30857.1,
+     "2023H2": 549.38,
+     "2024H1": -13321.06,
+     "2024H2": 29447.93
+    },
+    "by_regime_trend_vol": {
+     "1": {
+      "n": 19,
+      "net": 16753,
+      "avg": 882,
+      "win": 0.74,
+      "t": 1.5
+     },
+     "2": {
+      "n": 5,
+      "net": -7382,
+      "avg": -1476,
+      "win": 0.4,
+      "t": -1.14
+     },
+     "3": {
+      "n": 15,
+      "net": 14520,
+      "avg": 968,
+      "win": 0.6,
+      "t": 1.33
+     },
+     "4": {
+      "n": 14,
+      "net": 12787,
+      "avg": 913,
+      "win": 0.57,
+      "t": 0.86
+     },
+     "5": {
+      "n": 5,
+      "net": 6851,
+      "avg": 1370,
+      "win": 0.8,
+      "t": 0.7
+     },
+     "6": {
+      "n": 3,
+      "net": 4004,
+      "avg": 1335,
+      "win": 0.67,
+      "t": 0.66
+     }
+    },
+    "avg_points_per_trade_gross_legs": 22.7,
+    "gated_summary": {
+     "gate": "trend_vol regime != 2",
+     "summary": {
+      "trades": 56,
+      "net_pnl": 54915.16,
+      "profit_factor": 2.14,
+      "win_rate": 66.1,
+      "t_stat": 2.16,
+      "sharpe": 1.54,
+      "max_drawdown": -9206.27,
+      "max_drawdown_pct": -1.72,
+      "worst_day": -4861.23,
+      "net_ex_top_k": 30397.78,
+      "expectancy": 980.63,
+      "costs_total": 17902.34,
+      "peak_capital_required": 221307.3,
+      "return_on_margin_pct": 24.81,
+      "days_traded": 56,
+      "skipped": 0,
+      "missing_data": 1
+     },
+     "by_year": {
+      "2023": {
+       "trades": 27,
+       "net": 32373.85,
+       "wins": 19
+      },
+      "2024": {
+       "trades": 29,
+       "net": 22541.31,
+       "wins": 18
+      }
+     },
+     "by_half": {
+      "2023H1": 30857.1,
+      "2023H2": 1516.75,
+      "2024H1": -4419.06,
+      "2024H2": 26960.37
+     }
+    },
+    "robustness_neighbours": {
+     "ST30 aligned 1dEMA20 2xslip": {
+      "trades": 61,
+      "net": 42284,
+      "pf": 1.7,
+      "t": 1.61
+     },
+     "ST30 aligned 1dEMA20 stop120": {
+      "trades": 61,
+      "net": 36170,
+      "pf": 1.52,
+      "t": 1.23
+     },
+     "ST30 aligned 1dST10x3": {
+      "trades": 72,
+      "net": 31182,
+      "pf": 1.35,
+      "t": 1.02
+     },
+     "ST30m aligned 1dEMA50": {
+      "trades": 66,
+      "net": 648,
+      "pf": 1.01,
+      "t": 0.02
+     },
+     "ST15m aligned 1dEMA20": {
+      "trades": 132,
+      "net": -21272,
+      "pf": 0.88,
+      "t": -0.63
+     },
+     "ST60m aligned 1dEMA20": {
+      "trades": 33,
+      "net": 7287,
+      "pf": 1.2,
+      "t": 0.41
+     },
+     "EMA9x21 30m aligned 1dEMA20": {
+      "trades": 75,
+      "net": 17950,
+      "pf": 1.2,
+      "t": 0.66
+     },
+     "ST30 10x3 opp": {
+      "trades": 154,
+      "net": 22372,
+      "pf": 1.1,
+      "t": 0.49
+     }
+    },
+    "extra": {
+     "exit_reasons": {
+      "spot_move": 36,
+      "time": 25
+     },
+     "cost_share_of_gross_pct": 29.1,
+     "worst_day": -5298,
+     "gross_pnl": 61816,
+     "costs_total": 19533
+    }
+   }
+  },
+  {
+   "name": "ST30 trend-aligned futures, signal exit + one-sided 80pt stop",
+   "family": "intraday-fut-trend",
+   "instrument": "futures",
+   "hypothesis": "Intraday 30m Supertrend(10,3) flips that agree with the daily trend (prior daily close vs 1d EMA20) continue for the rest of the session; flips against the daily trend are noise. Same entries as the bracket version; exit only on the opposite Supertrend flip, an 80-point stop, or 15:15.",
+   "mechanism": "Institutional flows that build a multi-day trend tend to resume intraday after pullbacks; a 30m flip in the trend direction marks the pullback ending. Requiring the daily alignment removes ~60% of 30m flips (counter-trend ones, which lost) and leaves ~30 trades/yr with ~20 pts average, enough to clear ~5-8 pts of round-trip costs. Lets winners run to the square-off instead of capping at +80.",
+   "failure_modes": "Choppy, mean-reverting intraday tape (as in H1 2026 per HANDOVER) where flips reverse; sharp V-reversals of the daily trend; up/volatile regime (2) lost in every aligned variant (small n). Neighbourhood is not flat: 1d EMA50 alignment ~0, 15m negative, 60m weak positive. Highly correlated with the bracket candidate (same entries); treat as one idea in the multiple-testing count.",
+   "regimes_expected": [
+    1,
+    3,
+    4,
+    6
+   ],
+   "spec": {
+    "name": "ST30 aligned 1dEMA20 flipexit stop80pts one-sided",
+    "underlying": "NIFTY",
+    "timeframe": "30m",
+    "schedule": {
+     "entry": {
+      "type": "signal",
+      "bullish": {
+       "all": [
+        {
+         "left": {
+          "ind": "supertrend",
+          "field": "direction",
+          "params": {
+           "period": 10,
+           "multiplier": 3
+          }
+         },
+         "op": "crosses_above",
+         "right": {
+          "ind": "value",
+          "params": {
+           "value": 0
+          }
+         }
+        },
+        {
+         "left": {
+          "ind": "price",
+          "tf": "1d"
+         },
+         "op": ">",
+         "right": {
+          "ind": "ema",
+          "tf": "1d",
+          "params": {
+           "period": 20
+          }
+         }
+        }
+       ]
+      },
+      "bearish": {
+       "all": [
+        {
+         "left": {
+          "ind": "supertrend",
+          "field": "direction",
+          "params": {
+           "period": 10,
+           "multiplier": 3
+          }
+         },
+         "op": "crosses_below",
+         "right": {
+          "ind": "value",
+          "params": {
+           "value": 0
+          }
+         }
+        },
+        {
+         "left": {
+          "ind": "price",
+          "tf": "1d"
+         },
+         "op": "<",
+         "right": {
+          "ind": "ema",
+          "tf": "1d",
+          "params": {
+           "period": 20
+          }
+         }
+        }
+       ]
+      },
+      "last_entry": "14:30",
+      "window_start": "09:15"
+     },
+     "max_trades_per_day": 2
+    },
+    "position": {
+     "bullish": [
+      {
+       "id": "fut",
+       "action": "buy",
+       "instrument": "FUT",
+       "expiry": {
+        "by": "monthly",
+        "n": 0
+       }
+      }
+     ],
+     "bearish_mirror": true
+    },
+    "exits": {
+     "evaluation": {
+      "mode": "close",
+      "every": "30m"
+     },
+     "pnl_basis": "gross",
+     "square_off": "15:15",
+     "exit_signal": {
+      "any": [
+       {
+        "left": {
+         "ind": "supertrend",
+         "field": "direction",
+         "params": {
+          "period": 10,
+          "multiplier": 3
+         }
+        },
+        "op": "crosses_above",
+        "right": {
+         "ind": "value",
+         "params": {
+          "value": 0
+         }
+        }
+       },
+       {
+        "left": {
+         "ind": "supertrend",
+         "field": "direction",
+         "params": {
+          "period": 10,
+          "multiplier": 3
+         }
+        },
+        "op": "crosses_below",
+        "right": {
+         "ind": "value",
+         "params": {
+          "value": 0
+         }
+        }
+       }
+      ]
+     },
+     "combined": {
+      "stop": {
+       "unit": "points",
+       "value": 80
+      }
+     }
+    },
+    "costs": {
+     "brokerage_per_order": 20,
+     "slippage_points": 0.5,
+     "fut_slippage_points": 1.0,
+     "taxes": true
+    }
+   },
+   "gate_suggestion": {
+    "left": {
+     "ind": "regime",
+     "tf": "1d",
+     "params": {
+      "model": "trend_vol"
+     }
+    },
+    "op": "!=",
+    "right": {
+     "ind": "value",
+     "params": {
+      "value": 2
+     }
+    }
+   },
+   "train": {
+    "summary": {
+     "trades": 61,
+     "net_pnl": 43242.8,
+     "profit_factor": 1.62,
+     "win_rate": 63.9,
+     "t_stat": 1.35,
+     "sharpe": 0.96,
+     "max_drawdown": -17469.33,
+     "max_drawdown_pct": -3.38,
+     "worst_day": -12282.79,
+     "net_ex_top_k": 5032.36,
+     "expectancy": 708.9,
+     "costs_total": 19535.95,
+     "peak_capital_required": 221307.3,
+     "return_on_margin_pct": 19.54,
+     "days_traded": 61,
+     "skipped": 0,
+     "missing_data": 1
+    },
+    "by_year": {
+     "2023": {
+      "trades": 28,
+      "net": 13836.4,
+      "wins": 18
+     },
+     "2024": {
+      "trades": 33,
+      "net": 29406.4,
+      "wins": 21
+     }
+    },
+    "by_half": {
+     "2023H1": 13287.02,
+     "2023H2": 549.38,
+     "2024H1": -12278.98,
+     "2024H2": 41685.38
+    },
+    "by_regime_trend_vol": {
+     "1": {
+      "n": 19,
+      "net": 15198,
+      "avg": 800,
+      "win": 0.74,
+      "t": 1.4
+     },
+     "2": {
+      "n": 5,
+      "net": -5432,
+      "avg": -1086,
+      "win": 0.4,
+      "t": -0.87
+     },
+     "3": {
+      "n": 15,
+      "net": 29648,
+      "avg": 1977,
+      "win": 0.6,
+      "t": 1.63
+     },
+     "4": {
+      "n": 14,
+      "net": 11385,
+      "avg": 813,
+      "win": 0.64,
+      "t": 0.76
+     },
+     "5": {
+      "n": 5,
+      "net": -11781,
+      "avg": -2356,
+      "win": 0.6,
+      "t": -0.94
+     },
+     "6": {
+      "n": 3,
+      "net": 4225,
+      "avg": 1408,
+      "win": 0.67,
+      "t": 0.68
+     }
+    },
+    "avg_points_per_trade_gross_legs": 24.7,
+    "gated_summary": {
+     "note": "computed from the ungated trades with regime-2 days removed (not a separate screen)",
+     "trades": 56,
+     "net_pnl": 48675
+    },
+    "extra": {
+     "exit_reasons": {
+      "time": 49,
+      "stop": 12
+     },
+     "worst_day": -12283
+    }
+   }
+  }
+ ]
+}

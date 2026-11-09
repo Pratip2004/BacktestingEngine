@@ -14,6 +14,10 @@ from datetime import date
 
 MON, TUE, WED, THU, FRI = 0, 1, 2, 3, 4
 
+# Diwali Muhurat sessions: an hour of evening trading that shows up as a daily candle but isn't a regular
+# trading day (the exchange holiday calendar lists the day as a holiday; weekly expiries move to the day before).
+SPECIAL_SESSIONS = frozenset({date(2023, 11, 12), date(2024, 11, 1), date(2025, 10, 21)})
+
 
 @dataclass(frozen=True)
 class Underlying:
@@ -49,7 +53,7 @@ UNDERLYINGS: dict[str, Underlying] = {
         master_file="FONSEScripMaster.txt",
         option_instrument="OPTIDX",
         expiry_weekdays=((date(2025, 9, 1), TUE), (date(2000, 1, 1), THU)),
-        lot_sizes=((date(2025, 12, 30), 65), (date(2024, 11, 20), 75), (date(2000, 1, 1), 25)),
+        lot_sizes=((date(2025, 12, 30), 65), (date(2024, 11, 20), 75), (date(2024, 4, 26), 25), (date(2021, 7, 30), 50), (date(2015, 10, 30), 75), (date(2000, 1, 1), 25)),  # 25 → 75 from the Nov 2015 series, 75 → 50 from the Jul 2021 series (both dates approximate; verify against the NSE circulars)
     ),
     "SENSEX": Underlying(
         name="SENSEX",

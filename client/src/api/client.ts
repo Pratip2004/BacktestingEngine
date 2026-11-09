@@ -2,7 +2,7 @@ import axios, { AxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { T_FlyCandidate } from "../lib/flySim";
 import type { T_StraddleDay, T_StraddleParams } from "../lib/straddleSim";
-import type { T_Spec, T_Template } from "../lib/spec";
+import type { T_Cond, T_IndicatorCatalogue, T_Spec, T_Template } from "../lib/spec";
 
 export const api = axios.create({ baseURL: "/api" });
 
@@ -293,6 +293,10 @@ export type T_EngineTrade = {
   trade_day: string; weekday: number; direction: string | null; dte: number; entry_at: string; exit_at: string | null;
   spot_entry: number; atm: number; premium: number; capital: number; gross: number; costs: number; net: number;
   pct: number | null; reason: string; mfe: number | null; mae: number | null; stale_fills: number; legs: T_EngineLeg[];
+  // Money blocked (absent on runs saved before margins were recorded): premium (buys), max loss (hedged), approx SPAN (shorts, futures)
+  margin?: number; margin_basis?: "premium" | "max_loss" | "approx_margin"; pct_margin?: number | null;
+  // Multi-day (swing) trades: P&L per trading day held (sums to net)
+  daily_mtm?: { d: string; pnl: number }[]; hold_days?: number;
 };
 export type T_Breakdown = Record<string, { trades: number; net_pnl: number; win_rate: number }>;
 export type T_EngineMetrics = {
@@ -300,12 +304,15 @@ export type T_EngineMetrics = {
   avg_trade: number | null; avg_win: number | null; avg_loss: number | null; profit_factor: number | null; max_drawdown: number;
   best: number | null; worst: number | null; longest_losing_streak: number; sharpe: number | null; sortino: number | null;
   avg_capital: number | null; stale_fill_pct: number; exit_reasons: Record<string, number>;
+  avg_margin?: number | null; peak_margin?: number | null; return_on_margin_pct?: number | null;
+  days_in_market?: number; // trading days with an open position (multi-day trades span several)
 };
 export type T_EngineResult = {
   params: { spec: T_Spec; from_date: string; to_date: string; strategy_id?: string };
   metrics: T_EngineMetrics;
   breakdowns: { by_dte: T_Breakdown; by_weekday: T_Breakdown; by_reason: T_Breakdown; by_direction: T_Breakdown; monthly: T_Breakdown };
   equity: { t: string; equity: number }[];
+  daily?: { d: string; pnl: number }[]; // net P&L per day, multi-day trades marked to market (newer runs)
   trades: T_EngineTrade[];
   skipped: { time: string; reason: string }[];
   trade_days: number;
@@ -313,6 +320,9 @@ export type T_EngineResult = {
 };
 
 export const useTemplates = () => useQuery({ queryKey: ["templates"], queryFn: () => get<T_Template[]>("/strategies/templates"), staleTime: Infinity });
+// Built-in + extended indicator names for the condition builder (GET /strategies/indicators).
+export const useIndicatorCatalogue = () =>
+  useQuery({ queryKey: ["indicator-catalogue"], queryFn: () => get<T_IndicatorCatalogue>("/strategies/indicators"), staleTime: Infinity });
 export const useSavedStrategies = () => useQuery({ queryKey: ["strategies"], queryFn: () => get<T_SavedStrategyMeta[]>("/strategies") });
 export const useSavedStrategy = (id: string | null) =>
   useQuery({ queryKey: ["strategy", id], queryFn: () => get<T_SavedStrategy>(`/strategies/${id}`), enabled: !!id });
@@ -371,10 +381,10 @@ export type T_SweepResult = {
   cells: { values: (number | string)[]; in: T_SweepMetrics; out?: T_SweepMetrics }[];
 };
 
-export const useReplay = (runId: string | null, index: number | null) =>
+export const useReplay = (runId: string | null, index: number | null, member?: string | null) =>
   useQuery({
-    queryKey: ["replay", runId, index],
-    queryFn: () => get<T_Replay>(`/strategies/replay/${runId}/${index}`),
+    queryKey: ["replay", runId, index, member ?? null],
+    queryFn: () => get<T_Replay>(`/strategies/replay/${runId}/${index}`, member ? { member } : undefined),
     enabled: !!runId && index !== null,
     staleTime: Infinity,
   });
@@ -397,6 +407,8 @@ export type T_DataSettings = {
   include_monthly: boolean;
   nightly_enabled: boolean;
   nightly_time: string;
+  short_margin_pct?: number; // margin for an uncovered short index option, % of contract value
+  fut_margin_pct?: number;
   worker_paused: boolean;
 };
 
@@ -510,7 +522,7 @@ export function useUpdateDataSettings() {
 
 // ---------- Saved backtests ----------
 
-export type T_RunStrategy = "stock" | "butterfly" | "straddle" | "custom";
+export type T_RunStrategy = "stock" | "butterfly" | "straddle" | "custom" | "portfolio";
 
 export type T_RunSummary = { net_pnl: number | null; trades: number | null; win_rate: number | null; [k: string]: unknown };
 
@@ -583,4 +595,296 @@ export const useStartButterfly = () =>
 export const useBacktest = () =>
   useMutation({
     mutationFn: (body: T_BacktestRequest) => api.post<T_BacktestResult>("/backtest", body).then((r) => r.data),
+  });
+
+// ---------- Research lab ----------
+
+export type T_ExperimentStatus = "queued" | "running" | "done" | "failed" | "blocked" | "cancelled";
+export type T_Verdict = "pending" | "rejected" | "revise" | "inconclusive" | "advance" | "promoted";
+export type T_ResearchEventKind = "decision" | "experiment" | "audit" | "critic" | "agent" | "system";
+
+export type T_ResearchProgress = { period: string; stage: string; done: number; total: number; message: string };
+export type T_ResearchEvent = { t: string; kind: T_ResearchEventKind; actor: string; text: string; experiment_id: string | null };
+export type T_ResearchAgent = { name: string; role: string; status: string; task: string };
+
+export type T_ResearchStatus = {
+  state: {
+    phase: string;
+    phase_detail: string;
+    cycle: number;
+    agents: T_ResearchAgent[];
+    summary: string;
+    protocol: string;
+    updated_at: string;
+  };
+  runner: { paused: boolean; current: { id: string; period: string } | null; message: string };
+  counts: Partial<Record<T_ExperimentStatus, number>>;
+  verdicts: Partial<Record<T_Verdict, number>>;
+  experiments: number;
+  families: number;
+  current: { id: string; name: string; progress: T_ResearchProgress | null } | null;
+  running: { id: string; name: string; source: string | null; progress: T_ResearchProgress | null }[];
+  breeze_calls_today: number;
+  daily_budget: number | null;
+  events: T_ResearchEvent[];
+};
+
+export type T_ResearchPeriod = {
+  key: string; // is · stress · holdout · h2_2025 …
+  label: string;
+  role: string; // in_sample · out_of_sample · holdout · historical · stress
+  from: string;
+  to: string;
+  cost_overrides: Record<string, number> | null;
+  fingerprint?: string;
+};
+
+// Per-period headline in the experiments list.
+export type T_ResearchHeadline =
+  | {
+      trades: number; net_pnl: number | null; return_pct: number | null; profit_factor: number | null; sharpe: number | null;
+      t_stat: number | null; max_drawdown_pct: number | null; win_rate: number | null; costs_total: number | null;
+      peak_capital_required: number | null; fits_capital: boolean; net_ex_top5: number | null; run_id: string | null;
+      passed: number; checks: number; error?: undefined;
+    }
+  | { error: string };
+
+export type T_ExperimentMeta = {
+  id: string;
+  parent_id: string | null;
+  name: string;
+  family: string;
+  version: number;
+  stage: string;
+  status: T_ExperimentStatus;
+  verdict: T_Verdict;
+  priority: number;
+  source: string;
+  hypothesis: string;
+  next_action: string;
+  created_at: string;
+  updated_at: string;
+  progress: T_ResearchProgress | null;
+  economic_key: string;
+  periods: T_ResearchPeriod[];
+  results: Record<string, T_ResearchHeadline>;
+};
+
+// Research metrics on top of the engine's (app/research/evaluate.py).
+export type T_ResearchExt = {
+  capital: number;
+  trading_days: number; days_traded: number; trades: number; skipped: number;
+  net_pnl: number | null; gross_pnl: number | null; gross_before_slippage: number | null; costs_total: number | null;
+  cost_components: { brokerage: number; stt: number; exchange: number; sebi: number; stamp: number; gst: number; slippage: number };
+  cost_share_of_gross: number | null;
+  return_pct: number | null; annualized_return_pct: number | null;
+  max_drawdown: number | null; max_drawdown_pct: number | null; recovery_days: number | null;
+  sharpe: number | null; sortino: number | null; t_stat: number | null;
+  boot_ci: [number | null, number | null]; boot_p_loss: number | null;
+  profit_factor: number | null; win_rate: number | null; avg_win: number | null; avg_loss: number | null; expectancy: number | null;
+  net_ex_top5: number | null; top_decile_day_share_pct: number | null; longest_losing_streak: number;
+  avg_hold_min: number | null; exposure_pct: number | null;
+  peak_capital_required: number | null; avg_capital_required: number | null; capital_basis: string[]; fits_capital: boolean;
+  max_lots_by_capital: number | null;
+  weekly: { n: number; mean: number | null; worst: number | null; best: number | null; pct_positive: number | null } | null;
+  monthly: Record<string, number | null>;
+  by_hour: Record<string, { trades: number; net: number | null }>;
+  daily: { d: string; pnl: number | null; equity: number | null; dd: number | null }[];
+};
+
+export type T_ResearchCheck = { name: string; value: number | boolean | null; pass: boolean };
+
+export type T_ResearchResult = {
+  run_id?: string;
+  fingerprint?: string;
+  reused_from?: string;
+  metrics?: T_EngineMetrics;
+  breakdowns?: T_EngineResult["breakdowns"];
+  ext?: T_ResearchExt;
+  checks?: T_ResearchCheck[];
+  finished_at?: string;
+  error?: string;
+};
+
+export type T_Experiment = Omit<T_ExperimentMeta, "results"> & {
+  spec: T_Spec;
+  mechanism: string;
+  novelty: string;
+  failure_modes: string;
+  criteria: Record<string, unknown> | null;
+  capital: number;
+  decision_reason: string;
+  log: { t: string; msg: string }[];
+  audit: { t: string; by: string; severity: string; finding: string }[];
+  critic: { t: string; by: string; note: string }[];
+  similar: { id: string; name: string; verdict: T_Verdict }[];
+  events: T_ResearchEvent[];
+  code_rev: string;
+  results: Record<string, T_ResearchResult>;
+};
+
+export const useResearchStatus = () =>
+  useQuery({ queryKey: ["research-status"], queryFn: () => get<T_ResearchStatus>("/research/status"), refetchInterval: 5000 });
+
+export const useExperiments = () =>
+  useQuery({ queryKey: ["research-experiments"], queryFn: () => get<T_ExperimentMeta[]>("/research/experiments"), refetchInterval: 10000 });
+
+// Polls while open: a running experiment fills in period by period.
+export const useExperiment = (id: string | null) =>
+  useQuery({
+    queryKey: ["research-experiment", id],
+    queryFn: () => get<T_Experiment>(`/research/experiments/${id}`),
+    enabled: !!id,
+    refetchInterval: (q) => (q.state.data?.status === "running" || q.state.data?.status === "queued" ? 5000 : 30000),
+  });
+
+export function useResearchRunner() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (kind: "pause" | "resume") => api.post(`/research/runner/${kind}`).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["research-status"] }),
+  });
+}
+
+// ---------- Walk-forward regime playbooks (app/research/playbook.py) ----------
+
+export type T_PbStats = { trades: number; net: number; mean: number; t: number | null; pf: number | null; win_rate: number | null };
+export type T_PlaybookMeta = {
+  id: string;
+  label?: string | null;
+  settings: { test_start: string; end: string; min_trades: number; min_t: number; min_pf: number; per_regime: number; score: string };
+  oos: T_PbStats & { by_quarter_positive: number; quarters: number; by_regime: Record<string, T_PbStats>; by_year: Record<string, T_PbStats> };
+  candidates: { id: string; name: string; agent: string; instrument: string }[];
+  confirm: T_PbStats | null;
+};
+export type T_Playbook = T_PlaybookMeta & {
+  quarters: { from: string; to: string; choice: Record<string, string[]>; regime_days: Record<string, number>; test: T_PbStats }[];
+  baselines: Record<string, T_PbStats>;
+  hindsight: Record<string, T_PbStats & { regimes: number[] }>;
+  final: Record<string, (T_PbStats & { id: string })[]>;
+  confirm?: { oos: T_PbStats; quarters: (Partial<T_PbStats> & { from: string; approx?: number })[] };
+};
+
+export const usePlaybooks = () =>
+  useQuery({ queryKey: ["research-playbooks"], queryFn: () => get<T_PlaybookMeta[]>("/research/playbooks"), refetchInterval: 30000 });
+export const usePlaybook = (id: string | null) =>
+  useQuery({ queryKey: ["research-playbook", id], queryFn: () => get<T_Playbook>(`/research/playbooks/${id}`), enabled: !!id });
+
+// ---------- Paper watch (app/research/paper.py: rules re-run daily from a start date; never orders) ----------
+
+export type T_PaperTrade = { entry_at: string; exit_at: string | null; direction: string | null; net: number; reason: string | null; open: boolean; hold_days?: number | null; margin?: number | null; member?: string };
+export type T_PaperSignal = { at: string | null; holds: boolean | null; votes?: number; of?: number; needed?: number | null; conditions?: { rule: string; holds: boolean | null }[]; error?: string };
+export type T_PaperState = {
+  updated_at: string;
+  since: string;
+  until: string;
+  run_id?: string;
+  net_pnl?: number;
+  trades: T_PaperTrade[];
+  open_position?: T_PaperTrade | null;
+  max_drawdown?: number;
+  note?: string;
+  signal?: T_PaperSignal | null;
+  member_signals?: Record<string, T_PaperSignal & { name: string }>; // buckets: each member's entry with its gate
+};
+export type T_PaperWatch = {
+  experiment_id: string; // or "portfolio:<id>" for a bucket
+  kind?: "portfolio";
+  portfolio_id?: string;
+  since: string;
+  added_at: string;
+  name: string;
+  verdict?: T_Verdict;
+  family?: string;
+  last: T_PaperState | null;
+};
+
+export const usePaperWatch = () =>
+  useQuery({ queryKey: ["research-paper"], queryFn: () => get<T_PaperWatch[]>("/research/paper"), refetchInterval: 60000 });
+
+export function usePaperRefresh() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (eid: string) => api.post(`/research/paper/${eid}/refresh`).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["research-paper"] }),
+  });
+}
+
+// ---------- Strategy portfolios (buckets of algos, app/strategy/portfolio.py) ----------
+
+export type T_PortfolioMember = {
+  id: string;
+  name?: string | null;
+  strategy_id?: string | null; // a saved strategy (latest version) …
+  spec?: T_Spec | null; // … or an inline spec
+  lots: number; // multiplier on the strategy's own lots
+  gate?: T_Cond | null; // the algo only enters while this holds
+  enabled: boolean;
+};
+export type T_Portfolio = { name: string; description?: string; capital: number; members: T_PortfolioMember[] };
+export type T_SavedPortfolioMeta = { id: string; name: string; members: number; created_at: string; updated_at: string };
+export type T_SavedPortfolio = { id: string; portfolio: T_Portfolio; created_at: string; updated_at: string };
+export type T_PortfolioCheck = {
+  ok: boolean;
+  errors: { member: string | null; message: string }[];
+  warnings: { member: string | null; message: string }[];
+  portfolio: T_Portfolio | null;
+};
+export type T_PortfolioMemberSummary = {
+  id: string; name: string; lots: number; gate: T_Cond | null; error?: string;
+  underlying?: string; holding?: "intraday" | "swing";
+  metrics?: { trades: number; net_pnl: number; win_rate: number | null; profit_factor: number | null; max_drawdown: number;
+    sharpe: number | null; days_traded: number; days_in_market?: number; avg_trade: number | null; peak_margin?: number | null };
+  contribution_pct?: number | null; // signed share of the members' combined |P&L|
+  in_market_pct?: number | null;
+};
+export type T_PortfolioResult = {
+  params: { portfolio: T_Portfolio; from_date: string; to_date: string; portfolio_id?: string };
+  metrics: T_EngineMetrics & {
+    capital: number; return_pct: number; max_drawdown_pct: number; peak_open_positions: number; peak_combined_margin: number;
+  };
+  breakdowns: T_EngineResult["breakdowns"] & { by_member: T_Breakdown };
+  members: T_PortfolioMemberSummary[];
+  member_results: Record<string, T_EngineResult | { error: string }>;
+  equity: ({ d: string; total: number } & Record<string, number | string>)[]; // cumulative, total and per member
+  daily: { d: string; pnl: number }[];
+  correlation: Record<string, Record<string, number | null>>;
+  monthly: Record<string, Record<string, number>>;
+  by_regime: { trades: Record<string, Record<string, { trades: number; net_pnl: number; win_rate: number | null }>>; days: Record<string, number> } | null;
+  trades: (T_EngineTrade & { member: string })[];
+  trading_days: number;
+  run_id?: string;
+};
+
+export const useSavedPortfolios = () => useQuery({ queryKey: ["portfolios"], queryFn: () => get<T_SavedPortfolioMeta[]>("/portfolios") });
+export const useSavedPortfolio = (id: string | null) =>
+  useQuery({ queryKey: ["portfolio", id], queryFn: () => get<T_SavedPortfolio>(`/portfolios/${id}`), enabled: !!id });
+
+export function useSavePortfolio() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, portfolio }: { id?: string | null; portfolio: T_Portfolio }) =>
+      (id ? api.put<T_SavedPortfolio>(`/portfolios/${id}`, { portfolio }) : api.post<T_SavedPortfolio>("/portfolios", { portfolio })).then((r) => r.data),
+    onSuccess: (doc) => {
+      qc.invalidateQueries({ queryKey: ["portfolios"] });
+      qc.setQueryData(["portfolio", doc.id], doc);
+    },
+  });
+}
+
+export function useDeletePortfolio() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/portfolios/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["portfolios"] }),
+  });
+}
+
+export const useValidatePortfolio = () =>
+  useMutation({ mutationFn: (portfolio: T_Portfolio) => api.post<T_PortfolioCheck>("/portfolios/validate", { portfolio }).then((r) => r.data) });
+
+export const useRunPortfolio = () =>
+  useMutation({
+    mutationFn: (body: { portfolio: T_Portfolio; from_date: string; to_date: string; portfolio_id?: string | null }) =>
+      api.post<{ job_id: string }>("/portfolios/run", body).then((r) => r.data),
   });

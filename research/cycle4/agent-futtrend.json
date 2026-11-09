@@ -1,0 +1,486 @@
+{
+ "agent": "agent-futtrend",
+ "screens_run": 47,
+ "notes": "Training 2023-01-01..2024-12-31, NIFTY monthly futures, 1 lot, swing holding (max_days 30, exit 1 day before expiry, next-month contract when <5 days left). Event-style crossover entries (EMA cross, Supertrend flip) give only 5-17 trades because every position is closed at monthly expiry and not re-entered until the next cross; state-style entries (EMA20 > EMA50 etc.) re-enter after rollovers and work much better. Tried: EMA 10/30, 15/40, 20/50, 25/60, 50/100 state LS; Supertrend 1d and 1w (1d flip -Rs83k, 1w +Rs53k); PSAR 1d (-Rs149k); Aroon 25 (~0); Ichimoku cloud+TK (+Rs19k); 60m EMA20/50 held multi-day (+Rs14k, 12 missing-data chunks); Donchian20 breakout + ADX25 trend turtle exit (7 trades, ~0); RSI(2) pullback in trend (long -Rs8k, LS +Rs21k); squeeze release (-Rs66k, 7 trades); Keltner breakout with EMA trend (+Rs43k, t .5); weekly-trend pullback resume (+Rs6k); ADX>20 filter on EMA20/50 turned it negative (-Rs73k). Benchmark always-long with 4xATR stop: +Rs70k (3,122 pts). Only the EMA20/50 (+/- weekly EMA10 alignment) family beats it, by ~1,000-2,000 points, largely via short trades in late 2024 (lot 75). All results have t ~1.3 over ~32 trades and lose in 2023H2: weak, not established edges. Lessons: NIFTY daily mean-reverts in ranges, so fast signals (Supertrend 10/3, PSAR, 60m) whipsaw; ADX filters enter late; trend P&L is concentrated in volatile regimes (vol==1), consistent with trend-following 'crisis' payoff. The 2025-26 test (flat/down NIFTY with a sharp Mar-2026 fall) is a fair test of the short side.",
+ "platform_issues": [
+  "ENGINE_VERSION changed 4 -> 5 (app/strategy/engine.py, swing.py modified ~22:45) during my screening; screens before that are not comparable (e.g. the FT1 spec went from +Rs191,089 to +Rs199,996). Final candidate numbers were re-run on v5 and are deterministic across repeated runs in one process.",
+  "Swing futures trades are force-closed at exit_before_expiry each month and there is no 'roll' option; crossover (event) entries therefore lose the position after the first expiry. A holding.roll_futures option (close + reopen next month at the same time) would make crossover-based trend systems testable.",
+  "exits.exit_signal is direction-agnostic for directional specs (one condition for both long and short), so a long/short system can't have e.g. 'close < EMA20' for longs and 'close > EMA20' for shorts without an ANY of both, which also fires on the wrong side.",
+  "60m swing spec reported missing_data=12 on the snapshot (futures 1m gaps in 2023-24)."
+ ],
+ "candidates": [
+  {
+   "name": "FT1 daily EMA20/50 + weekly EMA10 trend, long/short futures, 4xATR trailing stop",
+   "family": "fut-trend",
+   "instrument": "futures",
+   "hypothesis": "When the daily EMA20/50 trend and the weekly close vs weekly EMA10 agree, NIFTY tends to keep moving that way for weeks; holding the future in that direction (long or short) with a wide trailing ATR stop captures multi-week trends.",
+   "mechanism": "Slow institutional flows (FII/DII) produce multi-week index trends; requiring daily and weekly agreement avoids most whipsaw inside ranges. 4xATR trailing stop lets trends run; the opposite aligned state flips the position. Futures costs are tiny (2x slippage costs ~Rs3k over 2 years).",
+   "failure_modes": "Choppy multi-month ranges (2023H2: -708 pts) bleed via repeated stops; sharp V-reversals (4 Jun 2024 election day -Rs21.9k on 1 lot); 32 trades only, t 1.38, so an edge is not established; long side benefits from the 2023-24 bull drift (always-long benchmark with the same stop made +Rs70k / 3,122 pts). Neighbouring daily EMA 15/40 is much weaker (+Rs69k, 2024H2 -Rs68k): parameter-fragile. Monthly rollovers cut trades at expiry-1 (17 of 32 exits are 'expiry', then re-entered).",
+   "regimes_expected": [
+    2,
+    4,
+    6
+   ],
+   "spec": {
+    "name": "FT1 Daily EMA20/50 + weekly EMA10 trend LS, 4ATR trail",
+    "underlying": "NIFTY",
+    "timeframe": "1d",
+    "schedule": {
+     "entry": {
+      "type": "signal",
+      "bullish": {
+       "all": [
+        {
+         "left": {
+          "ind": "ema",
+          "tf": "1d",
+          "params": {
+           "period": 20
+          }
+         },
+         "op": ">",
+         "right": {
+          "ind": "ema",
+          "tf": "1d",
+          "params": {
+           "period": 50
+          }
+         }
+        },
+        {
+         "left": {
+          "ind": "price",
+          "tf": "1w",
+          "params": {}
+         },
+         "op": ">",
+         "right": {
+          "ind": "ema",
+          "tf": "1w",
+          "params": {
+           "period": 10
+          }
+         }
+        }
+       ]
+      },
+      "next_day_time": "09:20",
+      "bearish": {
+       "all": [
+        {
+         "left": {
+          "ind": "ema",
+          "tf": "1d",
+          "params": {
+           "period": 20
+          }
+         },
+         "op": "<",
+         "right": {
+          "ind": "ema",
+          "tf": "1d",
+          "params": {
+           "period": 50
+          }
+         }
+        },
+        {
+         "left": {
+          "ind": "price",
+          "tf": "1w",
+          "params": {}
+         },
+         "op": "<",
+         "right": {
+          "ind": "ema",
+          "tf": "1w",
+          "params": {
+           "period": 10
+          }
+         }
+        }
+       ]
+      }
+     },
+     "max_trades_per_day": 1
+    },
+    "position": {
+     "bullish": [
+      {
+       "id": "fut",
+       "action": "buy",
+       "instrument": "FUT",
+       "expiry": {
+        "by": "monthly",
+        "min_days": 5
+       }
+      }
+     ],
+     "bearish": [
+      {
+       "id": "fut",
+       "action": "sell",
+       "instrument": "FUT",
+       "expiry": {
+        "by": "monthly",
+        "min_days": 5
+       }
+      }
+     ]
+    },
+    "exits": {
+     "exit_on_opposite_signal": true,
+     "underlying_stop": {
+      "atr_mult": 4,
+      "atr_period": 14,
+      "tf": "1d",
+      "trail": true
+     }
+    },
+    "holding": {
+     "mode": "swing",
+     "max_days": 30,
+     "exit_time": "15:20",
+     "exit_before_expiry": 1,
+     "check": "1d"
+    }
+   },
+   "gate_suggestion": {
+    "left": {
+     "ind": "regime",
+     "tf": "1d",
+     "params": {
+      "model": "vol"
+     }
+    },
+    "op": "==",
+    "right": {
+     "ind": "value",
+     "params": {
+      "value": 1
+     }
+    }
+   },
+   "train": {
+    "summary": {
+     "trades": 32,
+     "net_pnl": 199995.82,
+     "profit_factor": 1.77,
+     "win_rate": 59.4,
+     "t_stat": 1.38,
+     "sharpe": 0.98,
+     "max_drawdown": -105227.57,
+     "max_drawdown_pct": -17.51,
+     "worst_day": -21907.5,
+     "net_ex_top_k": 54290.06,
+     "expectancy": 6249.87,
+     "costs_total": 10591.68,
+     "peak_capital_required": 222201.45,
+     "return_on_margin_pct": 90.01,
+     "days_traded": 468,
+     "skipped": 0,
+     "missing_data": 0
+    },
+    "by_year": {
+     "2023": {
+      "trades": 15,
+      "net": 55679.63,
+      "wins": 8
+     },
+     "2024": {
+      "trades": 17,
+      "net": 144316.19,
+      "wins": 11
+     }
+    },
+    "by_half": {
+     "2023H1": 91072.91,
+     "2023H2": -35393.28,
+     "2024H1": 57504.1,
+     "2024H2": 86812.09
+    },
+    "points_by_half": {
+     "2023H1": 1821.4,
+     "2023H2": -707.8,
+     "2024H1": 2526.0,
+     "2024H2": 1733.0
+    },
+    "exit_reasons": {
+     "opposite_signal": 1,
+     "expiry": 17,
+     "underlying_stop": 13,
+     "period_end": 1
+    },
+    "by_trend_vol_regime": {
+     "3": [
+      8,
+      98581
+     ],
+     "5": [
+      4,
+      -56307
+     ],
+     "1": [
+      6,
+      -33188
+     ],
+     "2": [
+      3,
+      48957
+     ],
+     "4": [
+      10,
+      165425
+     ],
+     "6": [
+      1,
+      -23469
+     ]
+    },
+    "gated_summary": {
+     "trades": 15,
+     "net_pnl": 194077.58,
+     "profit_factor": 3.51,
+     "win_rate": 66.7,
+     "t_stat": 1.65,
+     "sharpe": 1.18,
+     "max_drawdown": -61041.07,
+     "max_drawdown_pct": -10.47,
+     "worst_day": -21907.5,
+     "net_ex_top_k": 120079.36,
+     "expectancy": 12938.51,
+     "costs_total": 5034.92,
+     "peak_capital_required": 222201.45,
+     "return_on_margin_pct": 87.34,
+     "days_traded": 237,
+     "skipped": 0,
+     "missing_data": 0
+    },
+    "gated_by_half": {
+     "2023H2": 44663.75,
+     "2024H1": 57504.1,
+     "2024H2": 91909.73
+    },
+    "gate_note": "gate = regime model 'vol' == 1 (volatile), ANDed into both bullish and bearish entries; chosen AFTER seeing the per-trend_vol-regime breakdown (calm regimes 1/3/5 ~ flat or negative), so the gated result is in-sample selected"
+   }
+  },
+  {
+   "name": "FT2 daily EMA20/50 trend, long/short futures, 3xATR fixed stop, 6xATR target",
+   "family": "fut-trend",
+   "instrument": "futures",
+   "hypothesis": "Daily EMA20 above/below EMA50 defines the trend; hold the future that way with a fixed 3xATR stop and a 6xATR (2R) take-profit.",
+   "mechanism": "Same trend persistence as FT1 without the weekly filter; the 2R target banks large moves before mean reversion that NIFTY shows after extended runs.",
+   "failure_modes": "Same as FT1 (range bleed 2023H2 -1,089 pts, gap days, few trades, bull-drift dependence). Highly correlated with FT1 (same core signal); treat as one idea with two exit variants. Worst day -Rs35.6k.",
+   "regimes_expected": [
+    2,
+    4,
+    6
+   ],
+   "spec": {
+    "name": "FT2 Daily EMA20/50 trend LS, 3ATR stop 6ATR target",
+    "underlying": "NIFTY",
+    "timeframe": "1d",
+    "schedule": {
+     "entry": {
+      "type": "signal",
+      "bullish": {
+       "left": {
+        "ind": "ema",
+        "tf": "1d",
+        "params": {
+         "period": 20
+        }
+       },
+       "op": ">",
+       "right": {
+        "ind": "ema",
+        "tf": "1d",
+        "params": {
+         "period": 50
+        }
+       }
+      },
+      "next_day_time": "09:20",
+      "bearish": {
+       "left": {
+        "ind": "ema",
+        "tf": "1d",
+        "params": {
+         "period": 20
+        }
+       },
+       "op": "<",
+       "right": {
+        "ind": "ema",
+        "tf": "1d",
+        "params": {
+         "period": 50
+        }
+       }
+      }
+     },
+     "max_trades_per_day": 1
+    },
+    "position": {
+     "bullish": [
+      {
+       "id": "fut",
+       "action": "buy",
+       "instrument": "FUT",
+       "expiry": {
+        "by": "monthly",
+        "min_days": 5
+       }
+      }
+     ],
+     "bearish": [
+      {
+       "id": "fut",
+       "action": "sell",
+       "instrument": "FUT",
+       "expiry": {
+        "by": "monthly",
+        "min_days": 5
+       }
+      }
+     ]
+    },
+    "exits": {
+     "exit_on_opposite_signal": true,
+     "underlying_stop": {
+      "atr_mult": 3,
+      "atr_period": 14,
+      "tf": "1d",
+      "trail": false,
+      "target_mult": 6
+     }
+    },
+    "holding": {
+     "mode": "swing",
+     "max_days": 30,
+     "exit_time": "15:20",
+     "exit_before_expiry": 1,
+     "check": "1d"
+    }
+   },
+   "gate_suggestion": {
+    "left": {
+     "ind": "regime",
+     "tf": "1d",
+     "params": {
+      "model": "vol"
+     }
+    },
+    "op": "==",
+    "right": {
+     "ind": "value",
+     "params": {
+      "value": 1
+     }
+    }
+   },
+   "train": {
+    "summary": {
+     "trades": 34,
+     "net_pnl": 198861.67,
+     "profit_factor": 1.74,
+     "win_rate": 55.9,
+     "t_stat": 1.32,
+     "sharpe": 0.94,
+     "max_drawdown": -113975.89,
+     "max_drawdown_pct": -18.64,
+     "worst_day": -35569.19,
+     "net_ex_top_k": 77844.19,
+     "expectancy": 5848.87,
+     "costs_total": 11062.08,
+     "peak_capital_required": 218507.4,
+     "return_on_margin_pct": 91.01,
+     "days_traded": 493,
+     "skipped": 0,
+     "missing_data": 0
+    },
+    "by_year": {
+     "2023": {
+      "trades": 19,
+      "net": 47198.02,
+      "wins": 8
+     },
+     "2024": {
+      "trades": 15,
+      "net": 151663.65,
+      "wins": 11
+     }
+    },
+    "by_half": {
+     "2023H1": 101637.3,
+     "2023H2": -54439.28,
+     "2024H1": 89795.6,
+     "2024H2": 61868.05
+    },
+    "points_by_half": {
+     "2023H1": 2032.7,
+     "2023H2": -1088.8,
+     "2024H1": 2558.8,
+     "2024H2": 767.7
+    },
+    "exit_reasons": {
+     "opposite_signal": 4,
+     "expiry": 20,
+     "underlying_stop": 9,
+     "period_end": 1
+    },
+    "by_trend_vol_regime": {
+     "3": [
+      13,
+      77373
+     ],
+     "5": [
+      4,
+      -16858
+     ],
+     "1": [
+      7,
+      -41399
+     ],
+     "2": [
+      3,
+      63409
+     ],
+     "4": [
+      6,
+      67027
+     ],
+     "6": [
+      1,
+      49310
+     ]
+    },
+    "gated_summary": {
+     "trades": 16,
+     "net_pnl": 175909.86,
+     "profit_factor": 2.81,
+     "win_rate": 68.8,
+     "t_stat": 1.48,
+     "sharpe": 1.05,
+     "max_drawdown": -55744.91,
+     "max_drawdown_pct": -8.57,
+     "worst_day": -35569.19,
+     "net_ex_top_k": 104202.32,
+     "expectancy": 10994.37,
+     "costs_total": 4711.39,
+     "peak_capital_required": 218507.4,
+     "return_on_margin_pct": 80.51,
+     "days_traded": 248,
+     "skipped": 0,
+     "missing_data": 0
+    },
+    "gated_by_half": {
+     "2023H2": 33632.89,
+     "2024H1": 77736.89,
+     "2024H2": 64540.08
+    },
+    "gate_note": "gate = regime model 'vol' == 1 (volatile), ANDed into both bullish and bearish entries; chosen AFTER seeing the per-trend_vol-regime breakdown (calm regimes 1/3/5 ~ flat or negative), so the gated result is in-sample selected"
+   }
+  }
+ ]
+}

@@ -22,6 +22,7 @@ STRATEGY_NAMES = {
     "butterfly": "EMA crossover butterfly",
     "straddle": "Intraday ATM straddle",
     "custom": "Strategy builder",
+    "portfolio": "Strategy portfolio",
 }
 _lock = threading.Lock()
 
@@ -44,6 +45,8 @@ def _default_name(strategy: str, params: dict) -> str:
         return f"{params.get('strategy', 'strategy')} on {params.get('stock_code', '')} · {period}"
     if strategy == "custom":
         return f"{params.get('spec', {}).get('name', 'Strategy')} · {period}"
+    if strategy == "portfolio":
+        return f"{params.get('portfolio', {}).get('name', 'Portfolio')} · {period}"
     return f"{STRATEGY_NAMES[strategy]} · {period}"
 
 

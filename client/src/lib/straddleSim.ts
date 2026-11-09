@@ -14,8 +14,10 @@
 //   Intraminute extremes: high = max(CE.high + PE.low, CE.low + PE.high), low = min(CE.low + PE.high,
 //   CE.high + PE.low), because a call's high coincides with a put's low.
 // - Otherwise both legs are closed at the square-off minute's open on the trade day (∓ slippage).
-// Costs mirror app/backtest/options_engine.py Costs. They're linear in turnover apart from the flat
+// Costs use the dated rates in lib/fees.ts (mirroring the backend cost_schedule). They're linear in turnover apart from the flat
 // per-order brokerage, so they can be computed on the combined straddle value.
+
+import { optionCosts, straddleMargin } from "./fees";
 
 export type T_StraddlePath = { t: string[]; ce_open: number[]; pe_open: number[]; hi: number[]; lo: number[] };
 
@@ -41,6 +43,7 @@ export type T_StraddleParams = {
   brokerage_per_order: number;
   slippage_points: number;
   taxes: boolean;
+  short_margin_pct?: number; // margin for a short straddle, % of spot × qty (default DEFAULT_SHORT_MARGIN_PCT)
 };
 
 export type T_Side = "buy" | "sell";
@@ -96,13 +99,15 @@ export type T_StraddleTrade = Omit<T_StraddleEntry, "path"> & {
   overnight: boolean;
   levels: T_Levels;
   premium: number; // per unit, CE + PE after slippage (paid when buying, collected when selling)
-  capital: number; // premium × qty
+  capital: number; // premium × qty (paid when buying, received when selling)
+  margin: number; // money blocked: the premium when buying, exchange margin (≈ % of spot × qty) when selling
   exit_at: string;
   exit_reason: T_ExitReason;
   exit_value: number; // per unit straddle value at exit (received when buying, paid when selling)
   costs: number;
   pnl: number;
   pnl_pct: number; // of premium
+  pnl_margin_pct: number; // of margin blocked
   max_x: number; // highest value before square-off ÷ premium
   min_x: number; // lowest value before square-off ÷ premium
 };
@@ -121,24 +126,19 @@ export type T_StraddleMetrics = {
   stops: number;
   time_exits: number;
   avg_capital: number | null;
+  avg_margin: number | null;
+  peak_margin: number | null;
+  return_on_margin_pct: number | null; // net P&L ÷ peak margin
 };
-
-const RATE = { stt: 0.001, exchange: 0.0003503, sebi: 0.000001, stamp: 0.00003, gst: 0.18 };
 
 export const isOvernight = (entry: string) => entry.startsWith("D-1 ");
 export const entryLabel = (entry: string) => (isOvernight(entry) ? `Prev day ${entry.slice(4)}` : `${entry}`);
 export const formatLevel = (side: T_Side, kind: "target" | "stop", v: number | null) =>
   v === null ? "off" : side === "buy" ? `${v}×` : kind === "target" ? `${v}%` : `+${v}%`;
 
-// Costs for `orders` orders on `turnover` rupees of premium, buying or selling.
-function costs(p: T_StraddleParams, turnover: number, isBuy: boolean, orders: number) {
-  const brokerage = p.brokerage_per_order * orders;
-  if (!p.taxes) return brokerage;
-  const exchange = RATE.exchange * turnover;
-  const sebi = RATE.sebi * turnover;
-  const stt = isBuy ? 0 : RATE.stt * turnover;
-  const stamp = isBuy ? RATE.stamp * turnover : 0;
-  return brokerage + exchange + sebi + stt + stamp + RATE.gst * (brokerage + exchange + sebi);
+// Costs for `orders` orders on `turnover` rupees of premium, buying or selling, at the rates of `day`.
+function costs(p: T_StraddleParams, day: string, turnover: number, isBuy: boolean, orders: number) {
+  return optionCosts(day, turnover, isBuy, orders, p.brokerage_per_order, p.taxes);
 }
 
 export function simulateStraddle(days: T_StraddleDay[], rules: T_StraddleRules, p: T_StraddleParams) {
@@ -206,10 +206,11 @@ export function simulateStraddle(days: T_StraddleDay[], rules: T_StraddleRules, 
     if (reason === "time") exitValue = ce_open[exitIdx] + pe_open[exitIdx] + (sell ? 2 : -2) * slip;
 
     const fees = sell
-      ? costs(p, premium * qty, false, 2) + costs(p, exitValue * qty, true, 2)
-      : costs(p, premium * qty, true, 2) + costs(p, exitValue * qty, false, 2);
+      ? costs(p, e.entry_at, premium * qty, false, 2) + costs(p, t[exitIdx], exitValue * qty, true, 2)
+      : costs(p, e.entry_at, premium * qty, true, 2) + costs(p, t[exitIdx], exitValue * qty, false, 2);
     const pnl = (sell ? premium - exitValue : exitValue - premium) * qty - fees;
     const { spot, atm, ce_entry, pe_entry, entry_at } = e;
+    const margin = straddleMargin(sell, premium * qty, spot, qty, p.short_margin_pct);
     trades.push({
       spot,
       atm,
@@ -225,12 +226,14 @@ export function simulateStraddle(days: T_StraddleDay[], rules: T_StraddleRules, 
       levels: lv,
       premium,
       capital: premium * qty,
+      margin,
       exit_at: t[exitIdx],
       exit_reason: reason,
       exit_value: exitValue,
       costs: fees,
       pnl,
       pnl_pct: (pnl / (premium * qty)) * 100,
+      pnl_margin_pct: margin ? (pnl / margin) * 100 : 0,
       max_x: maxV / premium,
       min_x: minV / premium,
     });
@@ -263,6 +266,11 @@ export function straddleMetrics(trades: T_StraddleTrade[]): T_StraddleMetrics {
     stops: trades.filter((t) => t.exit_reason === "stop").length,
     time_exits: trades.filter((t) => t.exit_reason === "time").length,
     avg_capital: trades.length ? sum(trades.map((t) => t.capital)) / trades.length : null,
+    avg_margin: trades.length ? sum(trades.map((t) => t.margin)) / trades.length : null,
+    peak_margin: trades.length ? Math.max(...trades.map((t) => t.margin)) : null,
+    return_on_margin_pct: trades.length && Math.max(...trades.map((t) => t.margin)) > 0
+      ? (sum(pnls) / Math.max(...trades.map((t) => t.margin))) * 100
+      : null,
   };
 }
 

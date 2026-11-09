@@ -46,17 +46,13 @@ class Costs:
     slippage_points: float = 0.5
     taxes: bool = True  # STT, exchange charges, SEBI fee, stamp duty, GST
 
-    def order_cost(self, price: float, qty: int, is_buy: bool) -> float:
-        turnover = price * qty
-        brokerage = self.brokerage_per_order
-        if not self.taxes:
-            return brokerage
-        stt = 0 if is_buy else 0.001 * turnover  # 0.1% on option sell premium
-        exchange = 0.0003503 * turnover  # NSE options transaction charge
-        sebi = 0.000001 * turnover
-        stamp = 0.00003 * turnover if is_buy else 0
-        gst = 0.18 * (brokerage + exchange + sebi)
-        return brokerage + stt + exchange + sebi + stamp + gst
+    def order_cost(self, price: float, qty: int, is_buy: bool, d: date) -> float:
+        """Brokerage + statutory charges at the rates that applied on `d` (store.cost_schedule: STT on option
+        sells 0.1% → 0.15% from 1 Apr 2026, etc.)."""
+        from app.strategy.engine import DatedCosts
+        if not hasattr(self, "_dated"):
+            self._dated = DatedCosts(self.brokerage_per_order, self.slippage_points, self.taxes)
+        return self._dated.order(price, qty, is_buy, d)
 
 
 # ---------- Data ----------
@@ -172,7 +168,7 @@ def butterfly_candidates(
         if capital <= 0:
             skipped.append({"time": str(ts), "reason": "Butterfly priced at a credit; premium-based % undefined"})
             continue
-        entry_cost = sum(costs.order_cost(px, abs(q) * lot_size, q > 0) for (_, q), px in zip(legs, entry_px))
+        entry_cost = sum(costs.order_cost(px, abs(q) * lot_size, q > 0, d) for (_, q), px in zip(legs, entry_px))
 
         # Net P&L if closed at each candle close from the entry bar to the day's last bar.
         path = []
@@ -183,7 +179,7 @@ def butterfly_candidates(
             closes = [(_close_at(f, t) or e) for f, e in zip(frames, entry_px)]
             exits = [c - costs.slippage_points * (1 if q > 0 else -1) for (_, q), c in zip(legs, closes)]
             gross = sum(q * lot_size * (x - e) for (_, q), x, e in zip(legs, exits, entry_px))
-            exit_cost = sum(costs.order_cost(x, abs(q) * lot_size, q < 0) for (_, q), x in zip(legs, exits))
+            exit_cost = sum(costs.order_cost(x, abs(q) * lot_size, q < 0, d) for (_, q), x in zip(legs, exits))
             path.append({"t": str(t), "pnl": round(gross - entry_cost - exit_cost, 2), "px": [round(c, 2) for c in closes]})
 
         candidates.append({

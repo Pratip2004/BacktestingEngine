@@ -5,3 +5,12 @@ __pycache__/
 .cache/
 .data/
 logs/
+calls[2026-10-30][n]_pivot_column_count.tsv
+daily.pkl
+dec.pkl
+on_trades.pkl
+reg.pkl
+s4.pkl
+s5.pkl
+.vscode/
+docs/

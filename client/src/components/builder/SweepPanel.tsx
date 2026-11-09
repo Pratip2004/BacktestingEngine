@@ -25,9 +25,10 @@ function sweepable(s: T_Spec): T_Def[] {
   const unit = (u?: string) => (u === "pct" ? "%" : u === "rupees" ? "₹" : u === "points" ? " pts" : "");
   out.push({ key: "target", label: `Target${unit(x.combined.target?.unit ?? "pct")}`, path: "exits.combined.target.value", defaults: [20, 30, 40, 50, 60] });
   out.push({ key: "stop", label: `Stop${unit(x.combined.stop?.unit ?? "pct")}`, path: "exits.combined.stop.value", defaults: [20, 30, 40, 60] });
-  if (s.schedule.entry.type === "time") out.push({ key: "entry", label: "Entry time", path: "schedule.entry.time", defaults: ["09:20", "09:30", "09:45", "10:00"], time: true });
-  else out.push({ key: "last", label: "No entries after", path: "schedule.entry.last_entry", defaults: ["12:00", "13:30", "15:00"], time: true });
-  out.push({ key: "sq", label: "Square-off", path: "exits.square_off", defaults: ["14:30", "15:00", "15:15", "15:25"], time: true });
+  if (s.schedule.entry.type === "time") {
+    if (!s.schedule.entry.times?.length) out.push({ key: "entry", label: "Entry time", path: "schedule.entry.time", defaults: ["09:20", "09:30", "09:45", "10:00"], time: true });
+  } else out.push({ key: "last", label: "No entries after", path: "schedule.entry.last_entry", defaults: ["12:00", "13:30", "15:00"], time: true });
+  if (s.holding?.mode !== "swing") out.push({ key: "sq", label: "Square-off", path: "exits.square_off", defaults: ["14:30", "15:00", "15:15", "15:25"], time: true });
   if (x.per_leg?.stop) out.push({ key: "legstop", label: "Leg stop", path: "exits.per_leg.stop.value", defaults: [15, 20, 25, 30, 40] });
   if (x.combined.trailing) out.push({ key: "trail", label: "Trail by", path: "exits.combined.trailing.trail.value", defaults: [10, 15, 20, 30] });
   const group = isDirectional(s) ? "bullish" : "legs";

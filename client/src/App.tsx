@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Button, Layout, Menu, Progress, Tooltip, Typography } from "antd";
 import {
   ApiOutlined,
+  BulbOutlined,
   DashboardOutlined,
   DatabaseOutlined,
   ExperimentOutlined,
@@ -28,8 +29,10 @@ import BacktestPage from "./pages/BacktestPage";
 import BacktestHub, { BacktestIndex, RedirectKeepQuery } from "./pages/BacktestHub";
 import DataPage from "./pages/DataPage";
 import BuilderPage from "./pages/BuilderPage";
+import PortfolioPage from "./pages/PortfolioPage";
 import StrategiesPage from "./pages/StrategiesPage";
 import ComparePage from "./pages/ComparePage";
+import ResearchPage from "./pages/ResearchPage";
 
 const { Sider, Header, Content } = Layout;
 const { Text } = Typography;
@@ -39,6 +42,7 @@ const NAV_GROUPS = [
     type: "group" as const,
     label: "Research",
     children: [
+      { key: "/research", icon: <BulbOutlined />, label: "Research lab" },
       { key: "/", icon: <DashboardOutlined />, label: "Overview" },
       { key: "/backtest", icon: <ExperimentOutlined />, label: "Backtest" },
       { key: "/options", icon: <TableOutlined />, label: "Options analytics" },
@@ -190,6 +194,7 @@ export default function App() {
               <Route index element={<BacktestIndex />} />
               <Route path="strategies" element={<StrategiesPage />} />
               <Route path="builder" element={<BuilderPage />} />
+              <Route path="portfolio" element={<PortfolioPage />} />
               <Route path="stock" element={<BacktestPage />} />
               <Route path="ema-butterfly" element={<OptionStrategyPage />} />
               <Route path="straddle" element={<StraddlePage />} />
@@ -200,6 +205,7 @@ export default function App() {
             <Route path="/option-strategy" element={<RedirectKeepQuery to="/backtest/ema-butterfly" />} />
             <Route path="/straddle" element={<RedirectKeepQuery to="/backtest/straddle" />} />
             <Route path="/runs" element={<RedirectKeepQuery to="/backtest/saved" />} />
+            <Route path="/research" element={<ResearchPage />} />
             <Route path="/data" element={<DataPage />} />
             <Route path="/options" element={<OptionsPage />} />
             <Route path="/market" element={<MarketDataPage />} />

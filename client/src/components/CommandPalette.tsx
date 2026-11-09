@@ -11,8 +11,10 @@ type T_Command = { id: string; group: string; label: string; hint?: string; to: 
 
 const PAGES: T_Command[] = [
   { id: "p-home", group: "Pages", label: "Overview", to: "/" },
+  { id: "p-research", group: "Pages", label: "Research lab", hint: "Live strategy-research program", to: "/research" },
   { id: "p-strategies", group: "Pages", label: "Backtest · Strategies", hint: "Your strategies and templates", to: "/backtest/strategies" },
   { id: "p-builder", group: "Pages", label: "Backtest · Strategy builder", hint: "Build any strategy without code", to: "/backtest/builder" },
+  { id: "p-portfolio", group: "Pages", label: "Backtest · Portfolio", hint: "Several algos together, each gated by regime or indicators", to: "/backtest/portfolio" },
   { id: "p-straddle", group: "Pages", label: "Backtest · Straddle", hint: "Buy or sell the ATM straddle", to: "/backtest/straddle" },
   { id: "p-fly", group: "Pages", label: "Backtest · EMA butterfly", hint: "EMA crossover butterfly with exit lab", to: "/backtest/ema-butterfly" },
   { id: "p-stock", group: "Pages", label: "Backtest · Stock strategy", to: "/backtest/stock" },
@@ -31,7 +33,7 @@ const ACTIONS: T_Command[] = [
   { id: "a-new-straddle", group: "Actions", label: "New straddle backtest", to: "/backtest/straddle" },
 ];
 
-const RUN_PATH: Record<string, string> = { stock: "/backtest/stock", butterfly: "/backtest/ema-butterfly", straddle: "/backtest/straddle", custom: "/backtest/builder" };
+const RUN_PATH: Record<string, string> = { stock: "/backtest/stock", butterfly: "/backtest/ema-butterfly", straddle: "/backtest/straddle", custom: "/backtest/builder", portfolio: "/backtest/portfolio" };
 
 // ⌘K / Ctrl+K: jump to any page, action or saved run by typing.
 export default function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {

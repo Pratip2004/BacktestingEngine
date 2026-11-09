@@ -12,6 +12,7 @@ and the API, the ingestion worker and the backtests all live in this process.
 """
 
 import json
+import os
 import threading
 from datetime import date, datetime, timedelta
 from typing import Any, Iterable
@@ -23,6 +24,12 @@ from app.config import BASE_DIR
 from app.data.instruments import UNDERLYINGS
 
 DB_PATH = BASE_DIR / ".data" / "market.duckdb"
+# Research screens run the engine in their own processes on a copy of the store (DuckDB allows one writer, which
+# is the server): MARKET_DB points at the copy, BACKTEST_OFFLINE=1 forbids Breeze calls (missing data → error).
+if os.environ.get("MARKET_DB"):
+    from pathlib import Path
+    DB_PATH = Path(os.environ["MARKET_DB"])
+OFFLINE = os.environ.get("BACKTEST_OFFLINE") == "1"
 
 # Spot and futures rows in fetch_log use these in place of option fields (primary keys can't hold NULL).
 NO_EXPIRY = date(1970, 1, 1)
@@ -55,6 +62,12 @@ CREATE TABLE IF NOT EXISTS ingest_jobs (
 CREATE TABLE IF NOT EXISTS settings (key VARCHAR PRIMARY KEY, value JSON);
 CREATE TABLE IF NOT EXISTS calls (day DATE PRIMARY KEY, n INTEGER);
 CREATE TABLE IF NOT EXISTS lot_sizes (underlying VARCHAR, effective_from DATE, lot_size INTEGER, PRIMARY KEY (underlying, effective_from));
+CREATE TABLE IF NOT EXISTS daily_1d (
+    symbol VARCHAR, d DATE, open DOUBLE, high DOUBLE, low DOUBLE, close DOUBLE, volume DOUBLE, PRIMARY KEY (symbol, d));
+CREATE TABLE IF NOT EXISTS daily_fetched (symbol VARCHAR PRIMARY KEY, d_from DATE, d_to DATE);
+CREATE TABLE IF NOT EXISTS fut_cost_schedule (
+    effective_from DATE PRIMARY KEY, stt_sell_pct DOUBLE, exchange_pct DOUBLE, sebi_pct DOUBLE,
+    stamp_buy_pct DOUBLE, gst_pct DOUBLE);
 CREATE TABLE IF NOT EXISTS cost_schedule (
     effective_from DATE PRIMARY KEY, stt_sell_pct DOUBLE, exchange_pct DOUBLE, sebi_pct DOUBLE,
     stamp_buy_pct DOUBLE, gst_pct DOUBLE);
@@ -69,12 +82,26 @@ DEFAULT_SETTINGS = {
     "nightly_enabled": True,
     "nightly_time": "16:15",  # IST, after the close
     "worker_paused": False,
+    "short_margin_pct": 13.0,  # margin for an uncovered short index option, % of contract value (calibrate: /market/margin-check)
+    "fut_margin_pct": 12.0,  # margin for an index future, % of contract value
 }
 
-# Options costs by date (as % of premium turnover). STT on option sells rose to 0.1% on 1 Oct 2024.
+# Options costs by date (% of premium turnover): STT on sells 0.05% → 0.0625% (1 Apr 2023) → 0.1% (1 Oct 2024)
+# → 0.15% (1 Apr 2026, Budget 2026-27); NSE exchange charge ≈0.05% → 0.03503% (1 Oct 2024, SEBI true-to-label).
+# These rows are code-defined and rewritten at startup (INSERT OR REPLACE).
 DEFAULT_COSTS = [
+    (date(2026, 4, 1), 0.15, 0.03503, 0.0001, 0.003, 18.0),
     (date(2024, 10, 1), 0.1, 0.03503, 0.0001, 0.003, 18.0),
-    (date(2000, 1, 1), 0.0625, 0.03503, 0.0001, 0.003, 18.0),
+    (date(2023, 4, 1), 0.0625, 0.0495, 0.0001, 0.003, 18.0),
+    (date(2000, 1, 1), 0.05, 0.0495, 0.0001, 0.003, 18.0),
+]
+# Index futures (% of contract turnover): STT on sells 0.01% → 0.0125% (1 Apr 2023) → 0.02% (1 Oct 2024)
+# → 0.05% (1 Apr 2026); NSE exchange 0.0019% → 0.00173% (1 Oct 2024); stamp 0.002% on buys.
+DEFAULT_FUT_COSTS = [
+    (date(2026, 4, 1), 0.05, 0.00173, 0.0001, 0.002, 18.0),
+    (date(2024, 10, 1), 0.02, 0.00173, 0.0001, 0.002, 18.0),
+    (date(2023, 4, 1), 0.0125, 0.0019, 0.0001, 0.002, 18.0),
+    (date(2000, 1, 1), 0.01, 0.0019, 0.0001, 0.002, 18.0),
 ]
 
 
@@ -83,6 +110,9 @@ class Store:
         path.parent.mkdir(parents=True, exist_ok=True)
         self.path = path
         self._lock = threading.RLock()
+        if OFFLINE:  # a shared read-only snapshot: many screening processes open it at once
+            self._con = duckdb.connect(str(path), read_only=True)
+            return
         self._con = duckdb.connect(str(path))
         with self._lock:
             self._con.execute(SCHEMA)
@@ -102,10 +132,13 @@ class Store:
         for key, value in DEFAULT_SETTINGS.items():
             self._con.execute("INSERT OR IGNORE INTO settings VALUES (?, ?)", [key, json.dumps(value)])
         for u in UNDERLYINGS.values():
+            self._con.execute("DELETE FROM lot_sizes WHERE underlying = ?", [u.name])
             for since, lot in u.lot_sizes:
-                self._con.execute("INSERT OR IGNORE INTO lot_sizes VALUES (?, ?, ?)", [u.name, since, lot])
-        for row in DEFAULT_COSTS:
-            self._con.execute("INSERT OR IGNORE INTO cost_schedule VALUES (?, ?, ?, ?, ?, ?)", list(row))
+                self._con.execute("INSERT INTO lot_sizes VALUES (?, ?, ?)", [u.name, since, lot])
+        for table, rows in (("cost_schedule", DEFAULT_COSTS), ("fut_cost_schedule", DEFAULT_FUT_COSTS)):
+            self._con.execute(f"DELETE FROM {table}")
+            for row in rows:
+                self._con.execute(f"INSERT INTO {table} VALUES (?, ?, ?, ?, ?, ?)", list(row))
 
     # ---------- settings & budget ----------
 

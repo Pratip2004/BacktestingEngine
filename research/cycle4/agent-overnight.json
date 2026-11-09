@@ -1,0 +1,374 @@
+{
+ "agent": "agent-overnight",
+ "screens_run": 68,
+ "notes": "Engine screens: 12 (1 crashed in evaluate, logged). Daily/minute pre-checks logged as looks: 56. KEY FINDING: the classic NIFTY 'overnight drift' (spot close->next open +11 pts/night 2012-20, +20 pts 2021-24, 9/9 years; intraday -7) is mostly NOT tradable on futures. Minute decomposition 2021-24: spot 09:15 open sits ~10 pts above the 09:16 open (stale pre-open print), and futures lose ~8 pts/night of carry (basis decay, incl. weekends). Futures 15:20->09:16 earn only +4.0 pts/night gross vs ~6.5 pts round-trip cost; futures intraday 09:20->15:20 is +0.35 pts (the spot 'intraday drag' is basis, not behaviour). Engine: unconditional long overnight futures 2021-24 = -47k (09:20 exit) / -97k (09:16), PF 0.94-0.97. So daily-candle overnight pre-checks overstate futures by ~0.09% of the index per night; I corrected for that. Trend/VIX conditioning (SMA50/200, trend votes, VIX percentile, RSI) does not help on futures 2021-24 (all-4-trend-votes nights were the WORST, +1.5 pts gross). What survives: overnight CONTINUATION of the day's move. 2012-20 spot long-up/short-down spread +2.7 pts/night (t 2.27, 7/9 yrs); with 3 agreeing votes (close>prev close, close>open, close in upper half of range) +3.15 (t 2.25, 8/9). 2021-24 futures spread ~10 pts/night (4/4 yrs). The short side after down days is weak after costs and ex-top-5% fails (L/S 3-vote: +250k but net_ex_top_k -166k), so only the long side is submitted. Candidate is MARGINAL: long history after artifact+carry correction is +2.5 pts/trade net, t 1.24, 7/9 years; 2023 ~flat; at 2x slippage 2023 is slightly negative. Regime gates did not help (trend!=down gate: +84k, t 1.27): in training a big share came from down/volatile regime 6 rebounds (2022), which the 2012-20 history does NOT support (regime 5/6 negative there), so the playbook should treat regime 6 profits as suspect. Exit 09:20 beat 09:16 in both long variants (+257k vs +210k for this rule; first minute is noisy) - I chose 09:20 after seeing both, a small selection.",
+ "platform_issues": [
+  "evaluate() crashes with KeyError when a trade_day isn't in trading_days(): trading_days reads DISTINCT dates from spot_1m, but NIFTY spot_1m is missing 2022-03-29 in the snapshot while fut_1m has 752 rows, so a futures trade exists that day; by_day.loc[d] adds the label and the drawdown-recovery pd.Index(days).get_loc(hit.index[0]) raises. Repro: screen(on long futures prev_day 15:20 entry with filter chg_pct(15m)>0 & chg_pct open>0 & price>vwap, costs.fut_slippage_points=2) 2021-01-01..2024-12-31. Workaround in my scratch: wrap evaluate so trading_days includes trade days. Also: spot_1m has a gap on 2022-03-29 (data).",
+  "validate_spec still warns 'No target, stop or signal exit' for intraday / prev_day specs that have exits.underlying_stop (the check only counts underlying_stop when swing), although engine 6 supports intraday underlying stops.",
+  "Daily-candle overnight pre-checks (open[t+1]-close[t]) are biased for futures by ~10 pts (stale 09:15 spot open) + ~8 pts carry per night at 2021-24 levels; the brief's suggested pre-check should subtract ~0.09% of the index per night or use 09:16 minute data.",
+  "With prev_day time entries the daily filter reads the day before the entry day (latest closed daily candle at 15:20), so regime gates lag one extra day; fine but worth documenting."
+ ],
+ "candidates": [
+  {
+   "name": "NIFTY fut overnight long after a strong day (3 votes) 15:20->09:20",
+   "family": "overnight-intraday",
+   "instrument": "futures",
+   "hypothesis": "When NIFTY closes the session strong (above previous close, above today's open, above VWAP at 15:15), the move continues overnight; buy 1 lot near-month future at 15:20, sell next day at 09:20.",
+   "mechanism": "Late-day buying pressure / information that isn't fully priced by the close (order-flow continuation, global session follow-through, institutions finishing allocations). Holding only the overnight leg harvests the positive overnight component conditional on strength while avoiding the intraday leg, and the 3-vote agreement filters marginal up days.",
+   "failure_modes": "Futures carry (~8 pts/night) and costs (~6.5 pts round trip) eat most of the drift; edge per trade is small (~8-12 pts gross) so a regime where overnight gaps turn negative (e.g. weak global cues, 2023) or higher slippage wipes it out. Fat-tailed: a few gap nights dominate (2021-24 net_ex_top_k +51k only). Long-history support after correction is weak (t 1.24). Concentration in down/volatile rebound nights in 2022.",
+   "regimes_expected": [
+    1,
+    2,
+    3
+   ],
+   "spec": {
+    "name": "NIFTY fut overnight long after a strong day (3 votes) 15:20->09:20",
+    "underlying": "NIFTY",
+    "timeframe": "15m",
+    "schedule": {
+     "entry": {
+      "type": "time",
+      "time": "15:20",
+      "prev_day": true,
+      "last_entry": "15:29",
+      "filter": {
+       "all": [
+        {
+         "left": {
+          "ind": "chg_pct",
+          "tf": "15m",
+          "field": "prev_close"
+         },
+         "op": ">",
+         "right": {
+          "ind": "value",
+          "params": {
+           "value": 0
+          }
+         }
+        },
+        {
+         "left": {
+          "ind": "chg_pct",
+          "tf": "15m",
+          "field": "open"
+         },
+         "op": ">",
+         "right": {
+          "ind": "value",
+          "params": {
+           "value": 0
+          }
+         }
+        },
+        {
+         "left": {
+          "ind": "price",
+          "tf": "15m"
+         },
+         "op": ">",
+         "right": {
+          "ind": "vwap",
+          "tf": "15m"
+         }
+        }
+       ]
+      }
+     }
+    },
+    "position": {
+     "legs": [
+      {
+       "id": "fut",
+       "action": "buy",
+       "instrument": "FUT",
+       "expiry": {
+        "by": "monthly",
+        "n": 0
+       }
+      }
+     ]
+    },
+    "exits": {
+     "square_off": "09:20",
+     "underlying_stop": {
+      "atr_mult": 2.0,
+      "atr_period": 14,
+      "tf": "1d"
+     }
+    }
+   },
+   "gate_suggestion": null,
+   "gate_note": "No gate recommended: trend!=down gate cut net to +84k (t 1.27). Long-history (2012-20) per-regime corrected pts/trade: 1:+3.8 2:+6.8 3:+2.0 4:+6.5 5:-5.5 6:-8.9; training (09:16 variant) 1:+5.0 2:+15.2 3:+8.0 4:-0.2 5:+15.4 6:+63.5. Only regimes 1-3 are positive in both.",
+   "train": {
+    "window": "2021-01-01..2024-12-31",
+    "summary": {
+     "trades": 367,
+     "net_pnl": 256887.34,
+     "profit_factor": 1.57,
+     "win_rate": 60.8,
+     "t_stat": 2.95,
+     "sharpe": 1.49,
+     "max_drawdown": -32413.55,
+     "max_drawdown_pct": -5.62,
+     "worst_day": -16973.4,
+     "net_ex_top_k": 51238.26,
+     "expectancy": 699.97,
+     "costs_total": 118248.91,
+     "peak_capital_required": 222950.7,
+     "return_on_margin_pct": 115.22,
+     "days_traded": 367,
+     "skipped": 6,
+     "missing_data": 1
+    },
+    "by_year": {
+     "2021": {
+      "trades": 93,
+      "net": 136356.58,
+      "wins": 66
+     },
+     "2022": {
+      "trades": 88,
+      "net": 72069.49,
+      "wins": 54
+     },
+     "2023": {
+      "trades": 101,
+      "net": 11751.48,
+      "wins": 52
+     },
+     "2024": {
+      "trades": 85,
+      "net": 36709.79,
+      "wins": 51
+     }
+    },
+    "by_half": {
+     "2021H1": 78814.13,
+     "2021H2": 57542.45,
+     "2022H1": 11484.65,
+     "2022H2": 60584.84,
+     "2023H1": -8104.34,
+     "2023H2": 19855.82,
+     "2024H1": 10498.74,
+     "2024H2": 26211.05
+    },
+    "points_per_trade_by_year_0916_variant": {
+     "2021": 15.6,
+     "2022": 16.5,
+     "2023": 1.8,
+     "2024": 11.6
+    },
+    "variant_exit_0916": {
+     "summary": {
+      "trades": 367,
+      "net_pnl": 209985.39,
+      "profit_factor": 1.47,
+      "win_rate": 59.9,
+      "t_stat": 2.55,
+      "sharpe": 1.29,
+      "max_drawdown": -32503.72,
+      "max_drawdown_pct": -5.72,
+      "worst_day": -17970.77,
+      "net_ex_top_k": 18810.71,
+      "expectancy": 572.17,
+      "costs_total": 118243.35,
+      "peak_capital_required": 222950.7,
+      "return_on_margin_pct": 94.18,
+      "days_traded": 367,
+      "skipped": 6,
+      "missing_data": 1
+     },
+     "by_year": {
+      "2021": {
+       "trades": 93,
+       "net": 90104.79,
+       "wins": 60
+      },
+      "2022": {
+       "trades": 88,
+       "net": 72599.39,
+       "wins": 56
+      },
+      "2023": {
+       "trades": 101,
+       "net": 9116.84,
+       "wins": 52
+      },
+      "2024": {
+       "trades": 85,
+       "net": 38164.37,
+       "wins": 52
+      }
+     },
+     "by_half": {
+      "2021H1": 53336.03,
+      "2021H2": 36768.76,
+      "2022H1": 15459.13,
+      "2022H2": 57140.26,
+      "2023H1": -4459.93,
+      "2023H2": 13576.77,
+      "2024H1": 7977.86,
+      "2024H2": 30186.51
+     }
+    },
+    "variant_exit_0916_2x_slippage": {
+     "summary": {
+      "trades": 367,
+      "net_pnl": 172337.21,
+      "profit_factor": 1.37,
+      "win_rate": 58.9,
+      "t_stat": 2.1,
+      "sharpe": 1.06,
+      "max_drawdown": -34303.64,
+      "max_drawdown_pct": -5.95,
+      "worst_day": -18120.77,
+      "net_ex_top_k": -16587.54,
+      "expectancy": 469.58,
+      "costs_total": 155891.54,
+      "peak_capital_required": 222950.7,
+      "return_on_margin_pct": 77.3,
+      "days_traded": 367,
+      "skipped": 6,
+      "missing_data": 1
+     },
+     "by_year": {
+      "2021": {
+       "trades": 93,
+       "net": 78055.3,
+       "wins": 60
+      },
+      "2022": {
+       "trades": 88,
+       "net": 63799.77,
+       "wins": 55
+      },
+      "2023": {
+       "trades": 101,
+       "net": -982.57,
+       "wins": 50
+      },
+      "2024": {
+       "trades": 85,
+       "net": 31464.71,
+       "wins": 51
+      }
+     }
+    },
+    "gated_summary": {
+     "gate": {
+      "left": {
+       "ind": "regime",
+       "tf": "1d",
+       "params": {
+        "model": "trend"
+       }
+      },
+      "op": "!=",
+      "right": {
+       "ind": "value",
+       "params": {
+        "value": -1
+       }
+      }
+     },
+     "summary": {
+      "trades": 310,
+      "net_pnl": 84375.23,
+      "profit_factor": 1.22,
+      "win_rate": 57.7,
+      "t_stat": 1.27,
+      "sharpe": 0.64,
+      "max_drawdown": -63164.47,
+      "max_drawdown_pct": -11.06,
+      "worst_day": -17970.77,
+      "net_ex_top_k": -39782.65,
+      "expectancy": 272.18,
+      "costs_total": 99434.76,
+      "peak_capital_required": 222950.7,
+      "return_on_margin_pct": 37.84,
+      "days_traded": 310,
+      "skipped": 5,
+      "missing_data": 1
+     },
+     "by_year": {
+      "2021": {
+       "trades": 84,
+       "net": 58390.03,
+       "wins": 52
+      },
+      "2022": {
+       "trades": 66,
+       "net": 4517.27,
+       "wins": 38
+      },
+      "2023": {
+       "trades": 82,
+       "net": 10551.91,
+       "wins": 41
+      },
+      "2024": {
+       "trades": 78,
+       "net": 10916.02,
+       "wins": 48
+      }
+     }
+    },
+    "per_regime_trend_vol_0916_variant": {
+     "1": {
+      "n": 99,
+      "net": 23639,
+      "pts": 5.0
+     },
+     "2": {
+      "n": 25,
+      "net": 19738,
+      "pts": 15.2
+     },
+     "3": {
+      "n": 117,
+      "net": 40903,
+      "pts": 8.0
+     },
+     "4": {
+      "n": 69,
+      "net": 95,
+      "pts": -0.2
+     },
+     "5": {
+      "n": 28,
+      "net": 25032,
+      "pts": 15.4
+     },
+     "6": {
+      "n": 29,
+      "net": 100579,
+      "pts": 63.5
+     }
+    },
+    "daily_precheck_2012_2020": {
+     "rule": "long overnight when close>prev close & close>open & CLV>0.5 (daily spot), net of 3 pts and of 0.094% x close artifact+carry correction",
+     "trades": 856,
+     "net_pts_per_trade": 2.49,
+     "t": 1.24,
+     "by_year_pts": [
+      -1.9,
+      3.8,
+      3.0,
+      7.6,
+      -6.3,
+      2.3,
+      2.0,
+      8.4,
+      3.5
+     ],
+     "uncorrected": {
+      "long_short_spread_pts": 3.15,
+      "t": 2.25,
+      "years_positive": "8/9"
+     }
+    }
+   }
+  }
+ ]
+}

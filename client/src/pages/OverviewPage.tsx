@@ -23,7 +23,7 @@ const QUICK_START = [
   { title: "Stock strategy", desc: "SMA / RSI strategies on any NSE stock or index.", icon: <LineChartOutlined />, to: "/backtest/stock", color: "from-emerald-500 to-teal-500" },
 ];
 
-const RUN_PATH: Record<string, string> = { stock: "/backtest/stock", butterfly: "/backtest/ema-butterfly", straddle: "/backtest/straddle", custom: "/backtest/builder" };
+const RUN_PATH: Record<string, string> = { stock: "/backtest/stock", butterfly: "/backtest/ema-butterfly", straddle: "/backtest/straddle", custom: "/backtest/builder", portfolio: "/backtest/portfolio" };
 
 // ---------- Helpers ----------
 

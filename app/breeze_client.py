@@ -7,11 +7,20 @@ from threading import Lock
 from typing import Any, Callable
 from urllib.parse import quote_plus
 
+import os
+
 import pandas as pd
 import requests
-import breeze_connect.breeze_connect as breeze_sdk
-from breeze_connect import BreezeConnect
 from fastapi import HTTPException
+
+# Offline research screens (BACKTEST_OFFLINE=1, app/research/screen.py) never call Breeze, and importing the SDK
+# downloads its security master over the network, so it's skipped there.
+if os.environ.get("BACKTEST_OFFLINE") == "1":
+    breeze_sdk = None
+    BreezeConnect = None
+else:
+    import breeze_connect.breeze_connect as breeze_sdk
+    from breeze_connect import BreezeConnect
 
 from app.config import get_settings
 
@@ -48,7 +57,8 @@ class _RequestsWithTimeout:
         return self._with_timeout(requests.delete, *args, **kwargs)
 
 
-breeze_sdk.requests = _RequestsWithTimeout(BREEZE_TIMEOUT)
+if breeze_sdk is not None:
+    breeze_sdk.requests = _RequestsWithTimeout(BREEZE_TIMEOUT)
 MIN_CALL_INTERVAL = 0.65  # seconds, ≈92 calls/minute
 
 # get_historical_data_v2 returns at most 1000 candles per call, so long ranges are fetched in chunks.
@@ -71,7 +81,7 @@ def to_breeze_date(dt: datetime) -> str:
 class BreezeManager:
     def __init__(self) -> None:
         self.settings = get_settings()
-        self._client: BreezeConnect | None = None
+        self._client: "BreezeConnect | None" = None
         self._lock = Lock()
         self._rate_lock = Lock()
         self._last_call = 0.0
@@ -118,7 +128,7 @@ class BreezeManager:
         return f.read_text().strip() if f.exists() else None
 
     @property
-    def client(self) -> BreezeConnect:
+    def client(self) -> "BreezeConnect":
         if self._client is None:
             raise HTTPException(401, f"Not logged in to Breeze. Log in at {self.login_url} and POST the apisession to /auth/session")
         return self._client

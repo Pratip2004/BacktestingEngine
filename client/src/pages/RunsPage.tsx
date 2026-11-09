@@ -18,6 +18,7 @@ const STRATEGY: Record<T_RunStrategy, { label: string; path: string; color: stri
   butterfly: { label: "EMA butterfly", path: "/backtest/ema-butterfly", color: "purple" },
   straddle: { label: "ATM straddle", path: "/backtest/straddle", color: "gold" },
   custom: { label: "Strategy builder", path: "/backtest/builder", color: "geekblue" },
+  portfolio: { label: "Portfolio", path: "/backtest/portfolio", color: "cyan" },
 };
 
 const FILTERS = [
@@ -26,6 +27,7 @@ const FILTERS = [
   { value: "butterfly", label: "EMA butterfly" },
   { value: "straddle", label: "Straddle" },
   { value: "custom", label: "Builder" },
+  { value: "portfolio", label: "Portfolio" },
 ];
 
 // ---------- Helpers ----------
@@ -48,6 +50,11 @@ function settings(run: T_RunMeta): string {
     const legs = spec?.position?.legs?.length ?? spec?.position?.bullish?.length ?? 0;
     const entry = spec?.schedule?.entry?.type === "signal" ? "signal entry" : `entry ${spec?.schedule?.entry?.time ?? ""}`;
     return `${spec?.underlying ?? ""} · ${legs} leg${legs === 1 ? "" : "s"} · ${entry}`;
+  }
+  if (run.strategy === "portfolio") {
+    const pf = p.portfolio as { members?: { name?: string | null; enabled?: boolean }[] } | undefined;
+    const on = (pf?.members ?? []).filter((m) => m.enabled !== false);
+    return `${on.length} algo${on.length === 1 ? "" : "s"}${on.length ? `: ${on.map((m) => m.name ?? "member").join(", ")}` : ""}`;
   }
   if (run.strategy === "straddle") {
     const fallbackEntry = (p.entry_times as string[] | undefined)?.[0] ?? String(p.entry_time ?? "09:30");

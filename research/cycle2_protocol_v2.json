@@ -1,0 +1,242 @@
+{
+ "defaults": {
+  "stage": "A",
+  "source": "lead + critic CRIT-1",
+  "capital": 100000,
+  "periods": [
+   {
+    "key": "half_a",
+    "label": "Discovery A \u00b7 Sep\u2013Dec 2025",
+    "role": "in_sample",
+    "from": "2025-09-01",
+    "to": "2025-12-31"
+   },
+   {
+    "key": "half_b",
+    "label": "Discovery B \u00b7 Jan\u2013Jun 2026",
+    "role": "in_sample",
+    "from": "2026-01-01",
+    "to": "2026-06-30"
+   },
+   {
+    "key": "pooled",
+    "label": "Discovery pooled \u00b7 Sep 2025\u2013Jun 2026",
+    "role": "in_sample",
+    "from": "2025-09-01",
+    "to": "2026-06-30"
+   },
+   {
+    "key": "stress_2x",
+    "label": "Pooled, 2\u00d7 slippage",
+    "role": "stress",
+    "from": "2025-09-01",
+    "to": "2026-06-30",
+    "cost_overrides": {
+     "slippage_points": 1.0
+    }
+   },
+   {
+    "key": "stress_half",
+    "label": "Pooled, 0.5\u00d7 slippage",
+    "role": "stress",
+    "from": "2025-09-01",
+    "to": "2026-06-30",
+    "cost_overrides": {
+     "slippage_points": 0.25
+    }
+   }
+  ]
+ },
+ "experiments": [
+  {
+   "name": "Overnight iron fly \u00b1800, 15:20 \u2192 next day 09:30",
+   "family": "volatility-short-overnight",
+   "parent_id": "E0009",
+   "version": 2,
+   "priority": 10,
+   "hypothesis": "Selling the ATM straddle overnight earns the overnight variance premium; \u00b1800 wings cap risk at \u2248\u20b935\u201345k for less overnight drag than \u00b1400.",
+   "mechanism": "Muravyev & Ni (2020, JFE): delta-hedged option returns are negative overnight. Jones & Shemesh (2018, JF): option prices don't fully reflect non-trading periods (weekends favour sellers). E0009/E0010 showed the predicted signs in H1 2026 (short straddle +\u20b929k gross before slippage, long overnight straddle \u2212\u20b929k).",
+   "novelty": "E0009 with wider (cheaper) wings and a 09:30 exit after the opening print settles; first test on the pooled two-regime window. Spec from critic CRIT-1 (X2), fixed before running.",
+   "failure_modes": "Reject if pooled net \u2264 0, halves disagree, or the short-straddle component is \u2264 0 gross before slippage (mechanism falsified). Weekday vs weekend split is a secondary readout only. Expected per-trade sd \u2248 \u20b93\u20135k; with ~200 nights the minimum detectable mean at t = 2 is \u2248 \u20b9500\u2013700/night.",
+   "criteria": {
+    "min_trades": 150
+   },
+   "spec": {
+    "name": "Overnight iron fly \u00b1800",
+    "underlying": "NIFTY",
+    "timeframe": "1m",
+    "schedule": {
+     "entry": {
+      "type": "time",
+      "time": "15:20",
+      "prev_day": true
+     }
+    },
+    "position": {
+     "legs": [
+      {
+       "id": "sell_ce",
+       "action": "sell",
+       "instrument": "CE",
+       "strike": {
+        "by": "atm_offset",
+        "value": 0
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      },
+      {
+       "id": "sell_pe",
+       "action": "sell",
+       "instrument": "PE",
+       "strike": {
+        "by": "atm_offset",
+        "value": 0
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      },
+      {
+       "id": "buy_ce",
+       "action": "buy",
+       "instrument": "CE",
+       "strike": {
+        "by": "atm_offset",
+        "value": 16
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      },
+      {
+       "id": "buy_pe",
+       "action": "buy",
+       "instrument": "PE",
+       "strike": {
+        "by": "atm_offset",
+        "value": -16
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      }
+     ]
+    },
+    "exits": {
+     "square_off": "09:30"
+    },
+    "costs": {
+     "brokerage_per_order": 20,
+     "slippage_points": 0.5,
+     "taxes": true
+    }
+   }
+  },
+  {
+   "name": "Expiry-day iron fly \u00b1300, 09:45 \u2192 15:15, no stop",
+   "family": "volatility-short-0dte",
+   "parent_id": "E0004",
+   "version": 2,
+   "priority": 9,
+   "hypothesis": "On expiry day the ATM straddle's last-day decay plus the retail lottery premium exceed realised moves after 09:45.",
+   "mechanism": "Last-day theta; retail demand for cheap 0DTE lottery tickets (SEBI F&O studies 2023/2024: ~9 in 10 individual traders lose; Boyer & Vorkink 2014 JF on options as lotteries; Coval & Shumway 2001 JF on negative straddle returns). Critic screen: expiry-day 09:20 short straddle +31.5 pts/day gross in H2 2025.",
+   "novelty": "E0004 without the 50% combined stop (10 of 26 stops cost \u2212\u20b945k in H1 2026; the stop is suspected of firing on single-leg wicks). Single pre-registered twin (critic X1).",
+   "failure_modes": "Reject if pooled net \u2264 0 or halves disagree. Low power: ~43 expiry days; per-trade sd \u2248 \u20b94.5k \u2192 detectable mean at t = 2 \u2248 \u20b91.4k/day; anything less is 'inconclusive' at best.",
+   "criteria": {
+    "min_trades": 30
+   },
+   "spec": {
+    "name": "0DTE iron fly \u00b1300 09:45 no stop",
+    "underlying": "NIFTY",
+    "timeframe": "1m",
+    "schedule": {
+     "dte": [
+      0
+     ],
+     "entry": {
+      "type": "time",
+      "time": "09:45"
+     }
+    },
+    "position": {
+     "legs": [
+      {
+       "id": "sell_ce",
+       "action": "sell",
+       "instrument": "CE",
+       "strike": {
+        "by": "atm_offset",
+        "value": 0
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      },
+      {
+       "id": "sell_pe",
+       "action": "sell",
+       "instrument": "PE",
+       "strike": {
+        "by": "atm_offset",
+        "value": 0
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      },
+      {
+       "id": "buy_ce",
+       "action": "buy",
+       "instrument": "CE",
+       "strike": {
+        "by": "atm_offset",
+        "value": 6
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      },
+      {
+       "id": "buy_pe",
+       "action": "buy",
+       "instrument": "PE",
+       "strike": {
+        "by": "atm_offset",
+        "value": -6
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      }
+     ]
+    },
+    "exits": {
+     "square_off": "15:15"
+    },
+    "costs": {
+     "brokerage_per_order": 20,
+     "slippage_points": 0.5,
+     "taxes": true
+    }
+   }
+  }
+ ]
+}

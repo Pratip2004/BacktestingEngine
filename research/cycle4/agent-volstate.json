@@ -1,0 +1,849 @@
+{
+ "agent": "agent-volstate",
+ "screens_run": 41,
+ "notes": "31 daily pre-checks on NIFTY+INDVIX 2012-2020 (points, next-open fills, 3 pts cost) and 10 engine screens 2021-2024. Pre-check: VIX spike-and-turn (VIX pr252>=80 turning) positive but only ~3-4 trades/yr and failed in the engine 2021-24 (11 trades, -25k). VIX/HV>1.5 cross (hold 10d) +4359 pts but 2/3 from 2020; nearby thresholds (1.25) lose -> fragile. Simple vol-timing (long while VIX<EMA10) = just drift (excess +184). Squeeze release long had excess +944 pts on only 16 trades / 9 yrs, 5 trades in the engine -> too rare. Squeeze release short and complacency short (low VIX, VIX lifting, price above EMA20) lose or ~0: short side doesn't work in this family. The 3-of-4 'fear priced but calming' vote is the only rule that held: positive in 8/9 pre-check years, all 7 neighbour variants positive, and positive in every training half 2021H2-2024H2 (no signals in 2021H1 because VIX was low vs the 2020 year). Its weakness is frequency: 27 trades over 2021-24 (below the ~60 the lead asked for), t 1.87. Intraday: ORB(09:15-09:30) futures with the new intraday 15m ATR2 trailing underlying stop: ungated 939 trades -33k; gated VIX pr>=70 +52k / t 0.72 (all from 2024H1), VIX pr<30 +35k / t 0.49 -> no vol-state ORB edge. Suggested gate (vol model == 1) was tried once and is worse than ungated (+215k vs +256k): the vote already selects volatile states; submit ungated.",
+ "platform_issues": [
+  "No k-of-n vote operator: 3-of-4 votes must be written as any-of(all-of combinations), 4 combos for entry and 4 for exit; a {'votes': [...], 'min': k} group would be cleaner.",
+  "highest/lowest default source is high/low; for a VIX close series pass source='close' explicitly (easy to miss)."
+ ],
+ "candidates": [
+  {
+   "name": "VIX fear-calming vote long (3 of 4), NIFTY futures swing",
+   "family": "vol-state",
+   "instrument": "futures",
+   "hypothesis": "When implied vol is elevated (VIX in its top 30% of the past year, and VIX > 1.3x realised 20d vol) but has started to come off its 5-day high, and NIFTY is below its EMA20, the market is pricing more fear than is being realised; buying futures earns the volatility/risk premium as fear unwinds.",
+   "mechanism": "Volatility mean-reverts and VIX-falling-from-high states coincide with short-covering and hedge unwinds; a vote of 4 independent-ish conditions (level, turn, implied-vs-realised spread, price dip) is more stable than one tuned threshold. Exit when <=1 vote remains (fear normalised), after 15 days, or at a 3x daily-ATR stop.",
+   "failure_modes": "A real bear market where VIX stays high and the turn is a pause (2018 lost -948 pts in the pre-check, Oct 2008 style). Few trades (~7/yr), so the test can fail on t even if the edge is real. Long-only: rides NIFTY drift partly (but excess vs drift was positive in both the pre-check and training). 2024 carries a large share of rupees because of the 75 lot size from Nov 2024; compare points.",
+   "regimes_expected": [
+    4,
+    6,
+    2
+   ],
+   "spec": {
+    "name": "VIX fear-calming vote (3 of 4) long",
+    "underlying": "NIFTY",
+    "timeframe": "1d",
+    "schedule": {
+     "entry": {
+      "type": "signal",
+      "signal": {
+       "any": [
+        {
+         "all": [
+          {
+           "left": {
+            "ind": "percent_rank",
+            "tf": "1d",
+            "params": {
+             "period": 252,
+             "source": "close",
+             "symbol": "VIX"
+            }
+           },
+           "op": ">=",
+           "right": {
+            "ind": "value",
+            "params": {
+             "value": 70
+            }
+           }
+          },
+          {
+           "left": {
+            "ind": "price",
+            "tf": "1d",
+            "params": {
+             "symbol": "VIX"
+            }
+           },
+           "op": "<",
+           "right": {
+            "ind": "highest",
+            "tf": "1d",
+            "params": {
+             "period": 5,
+             "source": "close",
+             "symbol": "VIX"
+            },
+            "mul": 0.95
+           }
+          },
+          {
+           "left": {
+            "ind": "price",
+            "tf": "1d",
+            "params": {
+             "symbol": "VIX"
+            }
+           },
+           "op": ">",
+           "right": {
+            "ind": "hv",
+            "tf": "1d",
+            "params": {
+             "period": 20
+            },
+            "mul": 1.3
+           }
+          }
+         ]
+        },
+        {
+         "all": [
+          {
+           "left": {
+            "ind": "percent_rank",
+            "tf": "1d",
+            "params": {
+             "period": 252,
+             "source": "close",
+             "symbol": "VIX"
+            }
+           },
+           "op": ">=",
+           "right": {
+            "ind": "value",
+            "params": {
+             "value": 70
+            }
+           }
+          },
+          {
+           "left": {
+            "ind": "price",
+            "tf": "1d",
+            "params": {
+             "symbol": "VIX"
+            }
+           },
+           "op": "<",
+           "right": {
+            "ind": "highest",
+            "tf": "1d",
+            "params": {
+             "period": 5,
+             "source": "close",
+             "symbol": "VIX"
+            },
+            "mul": 0.95
+           }
+          },
+          {
+           "left": {
+            "ind": "price",
+            "tf": "1d"
+           },
+           "op": "<",
+           "right": {
+            "ind": "ema",
+            "tf": "1d",
+            "params": {
+             "period": 20
+            }
+           }
+          }
+         ]
+        },
+        {
+         "all": [
+          {
+           "left": {
+            "ind": "percent_rank",
+            "tf": "1d",
+            "params": {
+             "period": 252,
+             "source": "close",
+             "symbol": "VIX"
+            }
+           },
+           "op": ">=",
+           "right": {
+            "ind": "value",
+            "params": {
+             "value": 70
+            }
+           }
+          },
+          {
+           "left": {
+            "ind": "price",
+            "tf": "1d",
+            "params": {
+             "symbol": "VIX"
+            }
+           },
+           "op": ">",
+           "right": {
+            "ind": "hv",
+            "tf": "1d",
+            "params": {
+             "period": 20
+            },
+            "mul": 1.3
+           }
+          },
+          {
+           "left": {
+            "ind": "price",
+            "tf": "1d"
+           },
+           "op": "<",
+           "right": {
+            "ind": "ema",
+            "tf": "1d",
+            "params": {
+             "period": 20
+            }
+           }
+          }
+         ]
+        },
+        {
+         "all": [
+          {
+           "left": {
+            "ind": "price",
+            "tf": "1d",
+            "params": {
+             "symbol": "VIX"
+            }
+           },
+           "op": "<",
+           "right": {
+            "ind": "highest",
+            "tf": "1d",
+            "params": {
+             "period": 5,
+             "source": "close",
+             "symbol": "VIX"
+            },
+            "mul": 0.95
+           }
+          },
+          {
+           "left": {
+            "ind": "price",
+            "tf": "1d",
+            "params": {
+             "symbol": "VIX"
+            }
+           },
+           "op": ">",
+           "right": {
+            "ind": "hv",
+            "tf": "1d",
+            "params": {
+             "period": 20
+            },
+            "mul": 1.3
+           }
+          },
+          {
+           "left": {
+            "ind": "price",
+            "tf": "1d"
+           },
+           "op": "<",
+           "right": {
+            "ind": "ema",
+            "tf": "1d",
+            "params": {
+             "period": 20
+            }
+           }
+          }
+         ]
+        }
+       ]
+      },
+      "next_day_time": "09:20"
+     }
+    },
+    "position": {
+     "legs": [
+      {
+       "id": "fut",
+       "action": "buy",
+       "instrument": "FUT",
+       "expiry": {
+        "by": "monthly",
+        "min_days": 5
+       }
+      }
+     ]
+    },
+    "holding": {
+     "mode": "swing",
+     "max_days": 15,
+     "exit_time": "15:20",
+     "check": "15m"
+    },
+    "exits": {
+     "underlying_stop": {
+      "atr_mult": 3.0,
+      "atr_period": 14,
+      "tf": "1d",
+      "trail": false
+     },
+     "exit_signal": {
+      "any": [
+       {
+        "all": [
+         {
+          "left": {
+           "ind": "percent_rank",
+           "tf": "1d",
+           "params": {
+            "period": 252,
+            "source": "close",
+            "symbol": "VIX"
+           }
+          },
+          "op": "<",
+          "right": {
+           "ind": "value",
+           "params": {
+            "value": 70
+           }
+          }
+         },
+         {
+          "left": {
+           "ind": "price",
+           "tf": "1d",
+           "params": {
+            "symbol": "VIX"
+           }
+          },
+          "op": ">=",
+          "right": {
+           "ind": "highest",
+           "tf": "1d",
+           "params": {
+            "period": 5,
+            "source": "close",
+            "symbol": "VIX"
+           },
+           "mul": 0.95
+          }
+         },
+         {
+          "left": {
+           "ind": "price",
+           "tf": "1d",
+           "params": {
+            "symbol": "VIX"
+           }
+          },
+          "op": "<=",
+          "right": {
+           "ind": "hv",
+           "tf": "1d",
+           "params": {
+            "period": 20
+           },
+           "mul": 1.3
+          }
+         }
+        ]
+       },
+       {
+        "all": [
+         {
+          "left": {
+           "ind": "percent_rank",
+           "tf": "1d",
+           "params": {
+            "period": 252,
+            "source": "close",
+            "symbol": "VIX"
+           }
+          },
+          "op": "<",
+          "right": {
+           "ind": "value",
+           "params": {
+            "value": 70
+           }
+          }
+         },
+         {
+          "left": {
+           "ind": "price",
+           "tf": "1d",
+           "params": {
+            "symbol": "VIX"
+           }
+          },
+          "op": ">=",
+          "right": {
+           "ind": "highest",
+           "tf": "1d",
+           "params": {
+            "period": 5,
+            "source": "close",
+            "symbol": "VIX"
+           },
+           "mul": 0.95
+          }
+         },
+         {
+          "left": {
+           "ind": "price",
+           "tf": "1d"
+          },
+          "op": ">=",
+          "right": {
+           "ind": "ema",
+           "tf": "1d",
+           "params": {
+            "period": 20
+           }
+          }
+         }
+        ]
+       },
+       {
+        "all": [
+         {
+          "left": {
+           "ind": "percent_rank",
+           "tf": "1d",
+           "params": {
+            "period": 252,
+            "source": "close",
+            "symbol": "VIX"
+           }
+          },
+          "op": "<",
+          "right": {
+           "ind": "value",
+           "params": {
+            "value": 70
+           }
+          }
+         },
+         {
+          "left": {
+           "ind": "price",
+           "tf": "1d",
+           "params": {
+            "symbol": "VIX"
+           }
+          },
+          "op": "<=",
+          "right": {
+           "ind": "hv",
+           "tf": "1d",
+           "params": {
+            "period": 20
+           },
+           "mul": 1.3
+          }
+         },
+         {
+          "left": {
+           "ind": "price",
+           "tf": "1d"
+          },
+          "op": ">=",
+          "right": {
+           "ind": "ema",
+           "tf": "1d",
+           "params": {
+            "period": 20
+           }
+          }
+         }
+        ]
+       },
+       {
+        "all": [
+         {
+          "left": {
+           "ind": "price",
+           "tf": "1d",
+           "params": {
+            "symbol": "VIX"
+           }
+          },
+          "op": ">=",
+          "right": {
+           "ind": "highest",
+           "tf": "1d",
+           "params": {
+            "period": 5,
+            "source": "close",
+            "symbol": "VIX"
+           },
+           "mul": 0.95
+          }
+         },
+         {
+          "left": {
+           "ind": "price",
+           "tf": "1d",
+           "params": {
+            "symbol": "VIX"
+           }
+          },
+          "op": "<=",
+          "right": {
+           "ind": "hv",
+           "tf": "1d",
+           "params": {
+            "period": 20
+           },
+           "mul": 1.3
+          }
+         },
+         {
+          "left": {
+           "ind": "price",
+           "tf": "1d"
+          },
+          "op": ">=",
+          "right": {
+           "ind": "ema",
+           "tf": "1d",
+           "params": {
+            "period": 20
+           }
+          }
+         }
+        ]
+       }
+      ]
+     }
+    }
+   },
+   "gate_suggestion": {
+    "left": {
+     "ind": "regime",
+     "tf": "1d",
+     "params": {
+      "model": "vol"
+     }
+    },
+    "op": "==",
+    "right": {
+     "ind": "value",
+     "params": {
+      "value": 1
+     }
+    }
+   },
+   "train": {
+    "summary": {
+     "trades": 27,
+     "net_pnl": 256489.61,
+     "profit_factor": 3.04,
+     "win_rate": 77.8,
+     "t_stat": 1.87,
+     "sharpe": 0.95,
+     "max_drawdown": -80686.73,
+     "max_drawdown_pct": -13.67,
+     "worst_day": -36605.29,
+     "net_ex_top_k": 147442.32,
+     "expectancy": 9499.62,
+     "costs_total": 8534.14,
+     "peak_capital_required": 215725.95,
+     "return_on_margin_pct": 118.9,
+     "days_traded": 195,
+     "skipped": 0,
+     "missing_data": 0
+    },
+    "by_year": {
+     "2021": {
+      "trades": 2,
+      "net": 49882.9,
+      "wins": 2
+     },
+     "2022": {
+      "trades": 9,
+      "net": 45492.13,
+      "wins": 6
+     },
+     "2023": {
+      "trades": 3,
+      "net": 23601.84,
+      "wins": 3
+     },
+     "2024": {
+      "trades": 13,
+      "net": 137512.74,
+      "wins": 10
+     }
+    },
+    "by_half": {
+     "2021H2": 49882.9,
+     "2022H1": 24559.98,
+     "2022H2": 20932.15,
+     "2023H1": 12733.99,
+     "2023H2": 10867.85,
+     "2024H1": 63169.13,
+     "2024H2": 74343.61
+    },
+    "per_regime_trades_net": {
+     "3": [
+      2,
+      25891
+     ],
+     "4": [
+      16,
+      67190
+     ],
+     "6": [
+      5,
+      136785
+     ],
+     "5": [
+      1,
+      4956
+     ],
+     "1": [
+      1,
+      10868
+     ],
+     "2": [
+      2,
+      10798
+     ]
+    },
+    "points_by_year": {
+     "2021": 997.7,
+     "2022": 909.8,
+     "2023": 472.0,
+     "2024": 2923.8
+    },
+    "days_in_market": 196,
+    "trades": [
+     {
+      "d": "2021-08-02",
+      "exit": "2021-08-04 09:20",
+      "net": 18112.87,
+      "reason": "signal"
+     },
+     {
+      "d": "2021-11-29",
+      "exit": "2021-12-09 09:20",
+      "net": 31770.03,
+      "reason": "signal"
+     },
+     {
+      "d": "2022-01-25",
+      "exit": "2022-02-02 09:20",
+      "net": 40196.46,
+      "reason": "signal"
+     },
+     {
+      "d": "2022-02-16",
+      "exit": "2022-02-24 09:47",
+      "net": -46541.99,
+      "reason": "underlying_stop"
+     },
+     {
+      "d": "2022-02-25",
+      "exit": "2022-03-21 15:20",
+      "net": 28843.15,
+      "reason": "time"
+     },
+     {
+      "d": "2022-04-27",
+      "exit": "2022-05-02 09:20",
+      "net": -6319.54,
+      "reason": "signal"
+     },
+     {
+      "d": "2022-05-06",
+      "exit": "2022-05-26 15:20",
+      "net": -26058.85,
+      "reason": "time"
+     },
+     {
+      "d": "2022-05-27",
+      "exit": "2022-06-03 09:20",
+      "net": 24671.15,
+      "reason": "signal"
+     },
+     {
+      "d": "2022-06-21",
+      "exit": "2022-06-29 09:20",
+      "net": 9769.6,
+      "reason": "signal"
+     },
+     {
+      "d": "2022-07-06",
+      "exit": "2022-07-07 09:20",
+      "net": 13683.72,
+      "reason": "signal"
+     },
+     {
+      "d": "2022-09-26",
+      "exit": "2022-10-07 09:20",
+      "net": 7248.43,
+      "reason": "signal"
+     },
+     {
+      "d": "2023-02-03",
+      "exit": "2023-02-09 09:20",
+      "net": 4956.06,
+      "reason": "signal"
+     },
+     {
+      "d": "2023-02-28",
+      "exit": "2023-03-08 09:20",
+      "net": 7777.93,
+      "reason": "signal"
+     },
+     {
+      "d": "2023-10-03",
+      "exit": "2023-10-11 09:20",
+      "net": 10867.85,
+      "reason": "signal"
+     },
+     {
+      "d": "2024-01-04",
+      "exit": "2024-01-08 09:20",
+      "net": 5436.15,
+      "reason": "signal"
+     },
+     {
+      "d": "2024-01-19",
+      "exit": "2024-01-30 09:20",
+      "net": 5362.41,
+      "reason": "signal"
+     },
+     {
+      "d": "2024-02-23",
+      "exit": "2024-03-14 15:20",
+      "net": -7919.06,
+      "reason": "time"
+     },
+     {
+      "d": "2024-03-15",
+      "exit": "2024-03-28 09:20",
+      "net": 1796.97,
+      "reason": "signal"
+     },
+     {
+      "d": "2024-04-19",
+      "exit": "2024-04-24 09:20",
+      "net": 26155.01,
+      "reason": "signal"
+     },
+     {
+      "d": "2024-05-08",
+      "exit": "2024-05-28 15:20",
+      "net": 15318.24,
+      "reason": "time"
+     },
+     {
+      "d": "2024-05-31",
+      "exit": "2024-06-04 12:01",
+      "net": -18327.4,
+      "reason": "underlying_stop"
+     },
+     {
+      "d": "2024-06-05",
+      "exit": "2024-06-14 09:20",
+      "net": 35346.81,
+      "reason": "signal"
+     },
+     {
+      "d": "2024-08-06",
+      "exit": "2024-08-19 09:20",
+      "net": 7083.47,
+      "reason": "signal"
+     },
+     {
+      "d": "2024-09-09",
+      "exit": "2024-09-16 09:20",
+      "net": 14125.03,
+      "reason": "signal"
+     },
+     {
+      "d": "2024-10-31",
+      "exit": "2024-11-14 09:43",
+      "net": -20366.07,
+      "reason": "underlying_stop"
+     },
+     {
+      "d": "2024-11-21",
+      "exit": "2024-11-26 09:20",
+      "net": 68850.83,
+      "reason": "signal"
+     },
+     {
+      "d": "2024-11-29",
+      "exit": "2024-12-02 09:20",
+      "net": 4650.35,
+      "reason": "signal"
+     }
+    ],
+    "gated_summary": {
+     "trades": 23,
+     "net_pnl": 214774.9,
+     "profit_factor": 2.71,
+     "win_rate": 73.9,
+     "t_stat": 1.61,
+     "sharpe": 0.81,
+     "max_drawdown": -80686.73,
+     "max_drawdown_pct": -14.11,
+     "worst_day": -36605.29,
+     "net_ex_top_k": 105727.61,
+     "expectancy": 9338.04,
+     "costs_total": 7323.85,
+     "peak_capital_required": 215725.95,
+     "return_on_margin_pct": 99.56,
+     "days_traded": 174,
+     "skipped": 0,
+     "missing_data": 0
+    },
+    "gated_by_half": {
+     "2021H2": 31770.03,
+     "2022H1": 24559.98,
+     "2022H2": 20932.15,
+     "2024H1": 63169.13,
+     "2024H2": 74343.61
+    },
+    "daily_precheck_2012_2020": {
+     "rule": "same 3-of-4 vote on NIFTY+INDVIX daily candles, next-open fills, 3 pts cost, ATR(14) 3x stop, max 15 days, exit when <=1 vote",
+     "trades": 77,
+     "net_points": 5625,
+     "avg_points": 73.1,
+     "win_rate": 0.7,
+     "t_stat_per_trade": 1.99,
+     "profit_factor": 1.78,
+     "points_by_year": {
+      "2012": 619,
+      "2013": 565,
+      "2014": 1604,
+      "2015": 1179,
+      "2016": 407,
+      "2017": 873,
+      "2018": -948,
+      "2019": 1040,
+      "2020": 288
+     },
+     "days_in_market": 661,
+     "excess_vs_buy_and_hold_drift_points": 2860,
+     "neighbourhood (all positive)": {
+      "vix_pr>=60": 6494,
+      "vix_pr>=80": 4506,
+      "vix/hv>1.2": 5221,
+      "vix/hv>1.5": 2705,
+      "turn 0.90x 5d max": 2730,
+      "atr stop 2": 4243,
+      "pr lookback 126": 4080
+     }
+    },
+    "robustness_engine_2021_2024": {
+     "2x_fut_slippage_net": 253990,
+     "max_days_10_net": 225061,
+     "excess_vs_drift_points": "~+3400 (5303 pts over 196 days held vs ~9.8 pts/day NIFTY drift)"
+    }
+   }
+  }
+ ]
+}

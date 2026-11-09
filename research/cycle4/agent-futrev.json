@@ -1,0 +1,661 @@
+{
+ "agent": "agent-futrev",
+ "screens_run": 71,
+ "notes": "Daily-timeframe NIFTY futures long/short mean reversion and pullback-in-trend, train 2023-01-01..2024-12-31, 1 lot, default costs. All specs: timeframe 1d, signal entry acted next day 09:20, monthly future (min_days 2), swing max_days 10, check 15m, underlying ATR(14,1d) stop. Families tried: RSI(2)/RSI(3) Connors with SMA200 filter (exits close>SMA5 / RSI2>70 / close>SMA10, ATR 2 and 3); z-score(10/20) at -1/-1.5/-2; Bollinger %B<0; Williams %R(14)<-90; IBS (Williams %R(1)); 3 down days; RSI14<40 pullback in EMA50>SMA200 trend; EMA20 pullback with ADX>20; stochastic K<10; CCI<-150; percent_rank<10; short mirrors (RSI2>90, z>1.5). Findings: the exit matters more than the entry - RSI2>70 exit beat close>SMA5 on every entry. Deeper dips (z20<-1.5, %B<0, CCI<-150) worked; shallow / frequent signals (IBS, 3 down days, Williams %R14, classic close>SMA5 Connors exit) lost. Short side lost in 2023 (drift) and won only in 2024 - not submitted. EMA20/ADX pullback lost. z family is smooth across neighbours (z10/z20 x -1/-1.5/-2 all positive overall; exits rsi2>60/70/80, z>0 all positive); but z20<-1.5 was the best cell, so expect decay. The ATR 3 stop never fired on z20 (identical to ATR 5); it is protective only. Caveats: only ~20 trades in 2 years, daily t 1.5 ungated (test rule needs t>=2 - likely to fail on t even if the edge persists); 2023 was weak in points (+410 pts over 8 trades vs +3098 over 11 in 2024), 2024H1 carries 2/3 of the money. Gate regime!=3 was chosen post hoc among 6 gates tried (vix>13, vix<13, vix>VIX SMA20, regime!=3, close>SMA200, ADX<25); vix>VIX-SMA20 was second (+120k, t 1.92). Other variants: max_days 5 gave +132k t 1.73; 2x slippage costs only -1.6k. SENSEX replication only possible for 2024H2 (futures sparse): 6 trades +30k, 26 skipped.",
+ "platform_issues": [
+  "holding.check='1d' with a 1d exit_signal: _exit_triggers moves the exit to D+1 09:20 but it is only acted on at the next 1d check, so exit_at is 'D+1 15:30' (session end). Signal exits land a full day late; with check '15m' the same spec made +102k vs +72k. Worth a validation warning.",
+  "Futures swing trades are force-closed at contract expiry (reason 'expiry') with no roll; with expiry.min_days small a trade can be cut 1-2 days in. min_days 7 removes most expiry exits. A roll option would be cleaner.",
+  "Trade dicts use key 'reason', not 'exit_reason' as BRIEF.md says."
+ ],
+ "candidates": [
+  {
+   "name": "NIFTY fut z-score dip buy (z20<-1.5, exit RSI2>70)",
+   "family": "fut-meanrev",
+   "instrument": "futures",
+   "hypothesis": "After the daily close falls 1.5+ standard deviations below its 20-day mean, NIFTY futures bounce within days; buy next morning, exit the morning after RSI(2) closes above 70 (max 10 days, ATR(14)x3 stop).",
+   "mechanism": "Short-term overreaction / liquidity provision: forced selling and de-risking push the index below fair value for a few days; dip buyers and NIFTY's positive drift pull it back. A few days' hold captures the bounce for only 2 futures fills.",
+   "failure_modes": "Sustained bear / crash regimes where dips keep extending; low trade count (19) so noisy; z20<-1.5 was the best grid cell; the ATR3 stop rarely fires so a gap crash is a large loss; money concentrated in 2024H1.",
+   "regimes_expected": [
+    2,
+    4,
+    5,
+    6
+   ],
+   "spec": {
+    "name": "NIFTY fut z-score dip buy (z20<-1.5, exit RSI2>70)",
+    "underlying": "NIFTY",
+    "timeframe": "1d",
+    "schedule": {
+     "entry": {
+      "type": "signal",
+      "signal": {
+       "left": {
+        "ind": "zscore",
+        "tf": "1d",
+        "params": {
+         "period": 20
+        }
+       },
+       "op": "<",
+       "right": {
+        "ind": "value",
+        "params": {
+         "value": -1.5
+        }
+       }
+      },
+      "next_day_time": "09:20"
+     }
+    },
+    "position": {
+     "legs": [
+      {
+       "id": "fut",
+       "action": "buy",
+       "instrument": "FUT",
+       "expiry": {
+        "by": "monthly",
+        "min_days": 2
+       }
+      }
+     ]
+    },
+    "holding": {
+     "mode": "swing",
+     "max_days": 10,
+     "exit_time": "15:20",
+     "check": "15m"
+    },
+    "exits": {
+     "underlying_stop": {
+      "atr_mult": 3.0,
+      "atr_period": 14,
+      "tf": "1d",
+      "trail": false
+     },
+     "exit_signal": {
+      "left": {
+       "ind": "rsi",
+       "tf": "1d",
+       "params": {
+        "period": 2
+       }
+      },
+      "op": ">",
+      "right": {
+       "ind": "value",
+       "params": {
+        "value": 70
+       }
+      }
+     }
+    }
+   },
+   "gate_suggestion": {
+    "left": {
+     "ind": "regime",
+     "tf": "1d",
+     "params": {
+      "model": "trend_vol"
+     }
+    },
+    "op": "!=",
+    "right": {
+     "ind": "value",
+     "params": {
+      "value": 3
+     }
+    }
+   },
+   "train": {
+    "summary": {
+     "trades": 19,
+     "net_pnl": 101805.93,
+     "profit_factor": 4.27,
+     "win_rate": 68.4,
+     "t_stat": 1.52,
+     "sharpe": 1.09,
+     "max_drawdown": -31607.19,
+     "max_drawdown_pct": -5.99,
+     "worst_day": -23850.84,
+     "net_ex_top_k": 67162.77,
+     "expectancy": 5358.21,
+     "costs_total": 6226.57,
+     "peak_capital_required": 215329.5,
+     "return_on_margin_pct": 47.28,
+     "days_traded": 100,
+     "skipped": 0,
+     "missing_data": 0
+    },
+    "by_year": {
+     "2023": {
+      "trades": 8,
+      "net": 18774.06,
+      "wins": 4
+     },
+     "2024": {
+      "trades": 11,
+      "net": 83031.87,
+      "wins": 9
+     }
+    },
+    "by_half": {
+     "2023H1": 13002.4,
+     "2023H2": 5771.66,
+     "2024H1": 67953.59,
+     "2024H2": 15078.28
+    },
+    "per_regime_trades_net": {
+     "1": [
+      1,
+      8965
+     ],
+     "2": [
+      1,
+      25987
+     ],
+     "3": [
+      5,
+      6330
+     ],
+     "4": [
+      7,
+      34495
+     ],
+     "5": [
+      3,
+      10976
+     ],
+     "6": [
+      2,
+      15053
+     ]
+    },
+    "points_by_year": {
+     "2023": 409.7,
+     "2024": 3097.8
+    },
+    "gated_summary": {
+     "trades": 16,
+     "net_pnl": 130837.79,
+     "profit_factor": 5.68,
+     "win_rate": 81.2,
+     "t_stat": 2.15,
+     "sharpe": 1.53,
+     "max_drawdown": -23850.84,
+     "max_drawdown_pct": -3.73,
+     "worst_day": -23850.84,
+     "net_ex_top_k": 96194.63,
+     "expectancy": 8177.36,
+     "costs_total": 5259.71,
+     "peak_capital_required": 215329.5,
+     "return_on_margin_pct": 60.76,
+     "days_traded": 83,
+     "skipped": 0,
+     "missing_data": 0
+    },
+    "gated_by_half": {
+     "2023H1": 18606.12,
+     "2023H2": 29199.8,
+     "2024H1": 67953.59,
+     "2024H2": 15078.28
+    },
+    "trades": [
+     {
+      "d": "2023-01-09",
+      "exit": "2023-01-10 09:30",
+      "net": 1601.59,
+      "reason": "signal"
+     },
+     {
+      "d": "2023-01-30",
+      "exit": "2023-02-06 09:30",
+      "net": 10299.48,
+      "reason": "signal"
+     },
+     {
+      "d": "2023-02-23",
+      "exit": "2023-03-06 09:30",
+      "net": 7921.69,
+      "reason": "signal"
+     },
+     {
+      "d": "2023-03-14",
+      "exit": "2023-03-23 09:30",
+      "net": -6820.36,
+      "reason": "signal"
+     },
+     {
+      "d": "2023-08-14",
+      "exit": "2023-08-24 09:30",
+      "net": 8965.33,
+      "reason": "signal"
+     },
+     {
+      "d": "2023-08-28",
+      "exit": "2023-08-31 15:20",
+      "net": -1199.78,
+      "reason": "expiry"
+     },
+     {
+      "d": "2023-10-05",
+      "exit": "2023-10-09 09:30",
+      "net": -1474.95,
+      "reason": "signal"
+     },
+     {
+      "d": "2023-10-25",
+      "exit": "2023-11-06 09:30",
+      "net": -518.94,
+      "reason": "signal"
+     },
+     {
+      "d": "2024-01-24",
+      "exit": "2024-01-30 09:30",
+      "net": 25986.74,
+      "reason": "signal"
+     },
+     {
+      "d": "2024-03-20",
+      "exit": "2024-03-22 09:30",
+      "net": 841.73,
+      "reason": "signal"
+     },
+     {
+      "d": "2024-05-10",
+      "exit": "2024-05-15 09:30",
+      "net": 6481.96,
+      "reason": "signal"
+     },
+     {
+      "d": "2024-06-05",
+      "exit": "2024-06-10 09:30",
+      "net": 34643.16,
+      "reason": "signal"
+     },
+     {
+      "d": "2024-08-06",
+      "exit": "2024-08-19 09:30",
+      "net": 6321.08,
+      "reason": "signal"
+     },
+     {
+      "d": "2024-10-08",
+      "exit": "2024-10-15 09:30",
+      "net": 7343.11,
+      "reason": "signal"
+     },
+     {
+      "d": "2024-10-23",
+      "exit": "2024-10-30 09:30",
+      "net": -4767.92,
+      "reason": "signal"
+     },
+     {
+      "d": "2024-11-04",
+      "exit": "2024-11-07 09:30",
+      "net": 5060.82,
+      "reason": "signal"
+     },
+     {
+      "d": "2024-11-13",
+      "exit": "2024-11-25 09:30",
+      "net": 9991.96,
+      "reason": "signal"
+     },
+     {
+      "d": "2024-12-20",
+      "exit": "2024-12-26 15:20",
+      "net": -16367.87,
+      "reason": "expiry"
+     },
+     {
+      "d": "2024-12-31",
+      "exit": "2024-12-31 15:20",
+      "net": 7497.1,
+      "reason": "period_end"
+     }
+    ]
+   }
+  },
+  {
+   "name": "NIFTY fut Connors RSI2<10 above SMA200 (exit RSI2>70)",
+   "family": "fut-meanrev",
+   "instrument": "futures",
+   "hypothesis": "Classic Connors short-term oversold in a long-term uptrend: RSI(2)<10 with close>SMA200 -> buy next morning, exit when RSI(2)>70 (max 10 days, ATR(14)x3 stop).",
+   "mechanism": "Same short-term reversal in an uptrend; the SMA200 filter avoids buying dips in bear markets.",
+   "failure_modes": "Weak in training (t 0.75, net ex top-5% only +10.5k); loses in range/calm regime 3 (6 trades, -32.7k) and 2023H2. Low confidence; overlaps the z-score candidate. Use only gated away from regime 3.",
+   "regimes_expected": [
+    2,
+    4,
+    5
+   ],
+   "spec": {
+    "name": "NIFTY fut Connors RSI2<10 above SMA200 (exit RSI2>70)",
+    "underlying": "NIFTY",
+    "timeframe": "1d",
+    "schedule": {
+     "entry": {
+      "type": "signal",
+      "signal": {
+       "all": [
+        {
+         "left": {
+          "ind": "rsi",
+          "tf": "1d",
+          "params": {
+           "period": 2
+          }
+         },
+         "op": "<",
+         "right": {
+          "ind": "value",
+          "params": {
+           "value": 10
+          }
+         }
+        },
+        {
+         "left": {
+          "ind": "price",
+          "tf": "1d"
+         },
+         "op": ">",
+         "right": {
+          "ind": "sma",
+          "tf": "1d",
+          "params": {
+           "period": 200
+          }
+         }
+        }
+       ]
+      },
+      "next_day_time": "09:20"
+     }
+    },
+    "position": {
+     "legs": [
+      {
+       "id": "fut",
+       "action": "buy",
+       "instrument": "FUT",
+       "expiry": {
+        "by": "monthly",
+        "min_days": 2
+       }
+      }
+     ]
+    },
+    "holding": {
+     "mode": "swing",
+     "max_days": 10,
+     "exit_time": "15:20",
+     "check": "15m"
+    },
+    "exits": {
+     "underlying_stop": {
+      "atr_mult": 3.0,
+      "atr_period": 14,
+      "tf": "1d",
+      "trail": false
+     },
+     "exit_signal": {
+      "left": {
+       "ind": "rsi",
+       "tf": "1d",
+       "params": {
+        "period": 2
+       }
+      },
+      "op": ">",
+      "right": {
+       "ind": "value",
+       "params": {
+        "value": 70
+       }
+      }
+     }
+    }
+   },
+   "gate_suggestion": {
+    "left": {
+     "ind": "regime",
+     "tf": "1d",
+     "params": {
+      "model": "trend_vol"
+     }
+    },
+    "op": "!=",
+    "right": {
+     "ind": "value",
+     "params": {
+      "value": 3
+     }
+    }
+   },
+   "train": {
+    "summary": {
+     "trades": 21,
+     "net_pnl": 56755.49,
+     "profit_factor": 1.75,
+     "win_rate": 66.7,
+     "t_stat": 0.75,
+     "sharpe": 0.54,
+     "max_drawdown": -42156.24,
+     "max_drawdown_pct": -7.74,
+     "worst_day": -28440.0,
+     "net_ex_top_k": 10534.28,
+     "expectancy": 2702.64,
+     "costs_total": 6604.51,
+     "peak_capital_required": 215275.5,
+     "return_on_margin_pct": 26.36,
+     "days_traded": 112,
+     "skipped": 0,
+     "missing_data": 0
+    },
+    "by_year": {
+     "2023": {
+      "trades": 9,
+      "net": 22552.04,
+      "wins": 7
+     },
+     "2024": {
+      "trades": 12,
+      "net": 34203.45,
+      "wins": 7
+     }
+    },
+    "by_half": {
+     "2023H1": 30001.76,
+     "2023H2": -7449.72,
+     "2024H1": 32590.75,
+     "2024H2": 1612.7
+    },
+    "per_regime_trades_net": {
+     "1": [
+      4,
+      -1789
+     ],
+     "2": [
+      2,
+      31218
+     ],
+     "3": [
+      6,
+      -32749
+     ],
+     "4": [
+      6,
+      19550
+     ],
+     "5": [
+      2,
+      30533
+     ],
+     "6": [
+      1,
+      9992
+     ]
+    },
+    "points_by_year": {
+     "2023": 490.5,
+     "2024": 1180.1
+    },
+    "gated_summary": {
+     "trades": 17,
+     "net_pnl": 68370.26,
+     "profit_factor": 2.5,
+     "win_rate": 64.7,
+     "t_stat": 1.01,
+     "sharpe": 0.72,
+     "max_drawdown": -27721.47,
+     "max_drawdown_pct": -4.73,
+     "worst_day": -23850.84,
+     "net_ex_top_k": 42383.52,
+     "expectancy": 4021.78,
+     "costs_total": 5344.74,
+     "peak_capital_required": 215329.5,
+     "return_on_margin_pct": 31.75,
+     "days_traded": 91,
+     "skipped": 0,
+     "missing_data": 0
+    },
+    "gated_by_half": {
+     "2023H1": 20478.48,
+     "2023H2": 11305.74,
+     "2024H1": 32590.75,
+     "2024H2": 3995.29
+    },
+    "trades": [
+     {
+      "d": "2023-01-09",
+      "exit": "2023-01-10 09:30",
+      "net": 1601.59,
+      "reason": "signal"
+     },
+     {
+      "d": "2023-01-30",
+      "exit": "2023-02-06 09:30",
+      "net": 10299.48,
+      "reason": "signal"
+     },
+     {
+      "d": "2023-02-23",
+      "exit": "2023-03-06 09:30",
+      "net": 7921.69,
+      "reason": "signal"
+     },
+     {
+      "d": "2023-05-19",
+      "exit": "2023-05-23 09:30",
+      "net": 10179.0,
+      "reason": "signal"
+     },
+     {
+      "d": "2023-08-04",
+      "exit": "2023-08-08 09:30",
+      "net": 5254.22,
+      "reason": "signal"
+     },
+     {
+      "d": "2023-08-21",
+      "exit": "2023-08-24 09:30",
+      "net": 9217.84,
+      "reason": "signal"
+     },
+     {
+      "d": "2023-09-22",
+      "exit": "2023-09-28 15:20",
+      "net": -14182.95,
+      "reason": "expiry"
+     },
+     {
+      "d": "2023-10-23",
+      "exit": "2023-10-26 09:25",
+      "net": -27973.3,
+      "reason": "underlying_stop"
+     },
+     {
+      "d": "2023-10-27",
+      "exit": "2023-11-06 09:30",
+      "net": 20234.47,
+      "reason": "signal"
+     },
+     {
+      "d": "2024-01-04",
+      "exit": "2024-01-08 09:30",
+      "net": 5231.18,
+      "reason": "signal"
+     },
+     {
+      "d": "2024-01-24",
+      "exit": "2024-01-30 09:30",
+      "net": 25986.74,
+      "reason": "signal"
+     },
+     {
+      "d": "2024-03-14",
+      "exit": "2024-03-22 09:30",
+      "net": -4433.5,
+      "reason": "signal"
+     },
+     {
+      "d": "2024-04-16",
+      "exit": "2024-04-23 09:30",
+      "net": 8228.07,
+      "reason": "signal"
+     },
+     {
+      "d": "2024-05-08",
+      "exit": "2024-05-15 09:30",
+      "net": 470.45,
+      "reason": "signal"
+     },
+     {
+      "d": "2024-05-31",
+      "exit": "2024-06-04 09:30",
+      "net": -2892.19,
+      "reason": "signal"
+     },
+     {
+      "d": "2024-08-06",
+      "exit": "2024-08-19 09:30",
+      "net": 6321.08,
+      "reason": "signal"
+     },
+     {
+      "d": "2024-09-09",
+      "exit": "2024-09-13 09:30",
+      "net": 11856.61,
+      "reason": "signal"
+     },
+     {
+      "d": "2024-10-04",
+      "exit": "2024-10-15 09:30",
+      "net": -3038.57,
+      "reason": "signal"
+     },
+     {
+      "d": "2024-10-18",
+      "exit": "2024-10-30 09:30",
+      "net": -7259.27,
+      "reason": "signal"
+     },
+     {
+      "d": "2024-11-13",
+      "exit": "2024-11-25 09:30",
+      "net": 9991.96,
+      "reason": "signal"
+     },
+     {
+      "d": "2024-12-19",
+      "exit": "2024-12-26 15:20",
+      "net": -16259.11,
+      "reason": "expiry"
+     }
+    ]
+   }
+  }
+ ]
+}

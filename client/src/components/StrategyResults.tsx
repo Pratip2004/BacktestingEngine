@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Alert, Button, Empty, Table, Tag, Typography } from "antd";
+import type { ColumnsType } from "antd/es/table";
 import { PlayCircleOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -29,6 +30,10 @@ const REASONS: Record<string, { label: string; color: string }> = {
   signal: { label: "Exit signal", color: "purple" },
   opposite_signal: { label: "Opposite signal", color: "purple" },
   spot_move: { label: "Spot move", color: "gold" },
+  underlying_stop: { label: "Underlying stop", color: "error" },
+  underlying_target: { label: "Underlying target", color: "success" },
+  expiry: { label: "Before expiry", color: "default" },
+  period_end: { label: "Period end", color: "default" },
 };
 
 const inr = (n: number | null | undefined) =>
@@ -60,7 +65,9 @@ function BreakdownTable({ title, data, label }: { title: string; data: T_Breakdo
   );
 }
 
-function TradesTable({ trades, onReplay }: { trades: T_EngineTrade[]; onReplay?: (index: number) => void }) {
+export function TradesTable({ trades, onReplay, extraColumns = [] }: {
+  trades: T_EngineTrade[]; onReplay?: (index: number) => void; extraColumns?: ColumnsType<T_EngineTrade & { n: number }>;
+}) {
   const printing = usePrintMode();
   return (
     <Table<T_EngineTrade & { n: number }>
@@ -92,11 +99,15 @@ function TradesTable({ trades, onReplay }: { trades: T_EngineTrade[]; onReplay?:
       }}
       columns={[
         { title: "#", dataIndex: "n", width: 48 },
+        ...extraColumns,
         { title: "Day", dataIndex: "trade_day", render: (d: string) => dayjs(d).format("ddd D MMM YY") },
         { title: "DTE", dataIndex: "dte", render: (d: number) => <Tag color={d === 0 ? "gold" : "default"}>{d}DTE</Tag> },
         { title: "Side", dataIndex: "direction", render: (d: string | null) => (d ? <Text style={{ color: d === "bullish" ? GOOD : BAD }}>{d === "bullish" ? "▲ Bull" : "▼ Bear"}</Text> : "–") },
         { title: "Entry", dataIndex: "entry_at", render: (v: string, t) => (v.slice(0, 10) === t.trade_day ? v.slice(11) : dayjs(v).format("ddd HH:mm")) },
-        { title: "Exit", dataIndex: "exit_at", render: (v: string | null) => v?.slice(11) ?? "–" },
+        { title: "Exit", dataIndex: "exit_at", render: (v: string | null, t) => (!v ? "–" : v.slice(0, 10) === t.trade_day ? v.slice(11) : dayjs(v).format("ddd D MMM HH:mm")) },
+        ...(trades.some((t) => t.hold_days)
+          ? [{ title: "Held", dataIndex: "hold_days", align: "right" as const, render: (v: number | undefined) => (v ? `${v}d` : "–") }]
+          : []),
         {
           title: "Reason",
           dataIndex: "reason",
@@ -109,6 +120,19 @@ function TradesTable({ trades, onReplay }: { trades: T_EngineTrade[]; onReplay?:
         { title: "Costs", dataIndex: "costs", align: "right", render: inr },
         { title: "Net P&L", dataIndex: "net", align: "right", sorter: (a, b) => a.net - b.net, render: (v: number) => <Pnl v={v} /> },
         { title: "% prem", dataIndex: "pct", align: "right", render: (v: number | null) => (v === null ? "–" : `${v > 0 ? "+" : ""}${v.toFixed(1)}%`) },
+        {
+          title: "Margin",
+          dataIndex: "margin",
+          align: "right",
+          render: (v: number | undefined, t: T_EngineTrade) =>
+            v === undefined ? "–" : <Text type="secondary" className="tabular-nums">{t.margin_basis === "approx_margin" ? "≈ " : ""}{inr(v)}</Text>,
+        },
+        {
+          title: "% margin",
+          dataIndex: "pct_margin",
+          align: "right",
+          render: (v: number | null | undefined) => (v === null || v === undefined ? "–" : `${v > 0 ? "+" : ""}${v.toFixed(2)}%`),
+        },
         ...(onReplay && !printing
           ? [{ title: "", key: "replay", render: (_: unknown, t: T_EngineTrade & { n: number }) => (
               <Button size="small" type="link" icon={<PlayCircleOutlined />} onClick={() => onReplay(t.n - 1)}>Replay</Button>
@@ -130,11 +154,15 @@ function reportInfoFor(result: T_EngineResult): T_ReportInfo {
   };
 }
 
-export default function StrategyResults({ result, runId, autoPdf, onPdfDone }: { result: T_EngineResult; runId: string | null; autoPdf?: boolean; onPdfDone?: () => void }) {
+export default function StrategyResults({ result, runId, autoPdf, onPdfDone, member }: {
+  result: T_EngineResult; runId: string | null; autoPdf?: boolean; onPdfDone?: () => void;
+  member?: string; // a portfolio member's result inside portfolio run `runId`
+}) {
   const [replay, setReplay] = useState<number | null>(null);
   const m = result.metrics;
   const b = result.breakdowns;
   const daily = useMemo(() => {
+    if (result.daily) return result.daily.map((d) => ({ day: d.d, pnl: Math.round(d.pnl) })); // marked to market
     const by = new Map<string, number>();
     result.trades.forEach((t) => by.set(t.trade_day, (by.get(t.trade_day) ?? 0) + t.net));
     return [...by.entries()].map(([day, pnl]) => ({ day, pnl: Math.round(pnl) }));
@@ -162,11 +190,19 @@ export default function StrategyResults({ result, runId, autoPdf, onPdfDone }: {
 
       <div data-report-section className="grid grid-cols-2 xl:grid-cols-4 gap-3">
         <StatCard label="Net P&L" value={signed(m.net_pnl)} hint={`${signed(m.avg_trade)} per trade · costs ${inr(m.costs)}`} />
-        <StatCard label="Win rate" value={m.win_rate === null ? "–" : `${m.win_rate.toFixed(1)}%`} hint={`${m.wins} of ${m.trades} trades · ${m.days_traded} days`} />
-        <StatCard label="Max drawdown" value={inr(m.max_drawdown)} hint={`Longest losing streak ${m.longest_losing_streak}`} />
+        <StatCard label="Win rate" value={m.win_rate === null ? "–" : `${m.win_rate.toFixed(1)}%`} hint={`${m.wins} of ${m.trades} trades · ${m.days_traded} days${m.days_in_market && m.days_in_market !== m.days_traded ? ` · ${m.days_in_market} in market` : ""}`} />
+        <StatCard label="Max drawdown" value={inr(m.max_drawdown)}
+          hint={`${result.trades.some((t) => t.daily_mtm) ? "Daily mark-to-market · " : ""}longest losing streak ${m.longest_losing_streak}`} />
         <StatCard label="Profit factor" value={m.profit_factor?.toFixed(2) ?? "–"} hint={`Sharpe ${m.sharpe ?? "–"} · Sortino ${m.sortino ?? "–"}`} />
         <StatCard label="Avg win / loss" value={`${inr(m.avg_win)} / ${inr(m.avg_loss)}`} hint={`Best ${signed(m.best)} · worst ${signed(m.worst)}`} />
-        <StatCard label="Avg premium" value={inr(m.avg_capital)} hint="Net premium per trade" />
+        <StatCard label="Avg premium" value={inr(m.avg_capital)} hint="Net premium per trade (paid or received)" />
+        <StatCard
+          label="Margin blocked"
+          value={m.peak_margin === undefined || m.peak_margin === null ? "–" : inr(m.peak_margin)}
+          hint={m.return_on_margin_pct === undefined || m.return_on_margin_pct === null
+            ? "Not recorded for this run (re-run to see it)"
+            : `Peak; avg ${inr(m.avg_margin ?? null)} · net = ${m.return_on_margin_pct.toFixed(1)}% of peak margin`}
+        />
         <StatCard label="Exits" value={Object.values(m.exit_reasons).reduce((a, b2) => a + b2, 0)}
           hint={Object.entries(m.exit_reasons).map(([k, v]) => `${REASONS[k]?.label ?? k} ${v}`).join(" · ")} />
         <StatCard label="Stale fills" value={`${m.stale_fill_pct}%`} hint="Legs filled after the entry minute (illiquid strikes)" />
@@ -187,7 +223,7 @@ export default function StrategyResults({ result, runId, autoPdf, onPdfDone }: {
             </ResponsiveContainer>
           </div>
         </SectionCard>
-        <SectionCard title="Daily P&L" description="Net P&L of each trading day.">
+        <SectionCard title="Daily P&L" description={result.trades.some((t) => t.daily_mtm) ? "Net P&L of each trading day; open multi-day positions marked at the close." : "Net P&L of each trading day."}>
           <div className="h-64">
             <ResponsiveContainer>
               <BarChart data={daily} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
@@ -218,7 +254,7 @@ export default function StrategyResults({ result, runId, autoPdf, onPdfDone }: {
       <SectionCard title="Trades" description="Expand a trade to see each leg's fills, or replay it minute by minute.">
         <TradesTable trades={result.trades} onReplay={runId ? setReplay : undefined} />
       </SectionCard>
-      {runId && <ReplayDrawer runId={runId} index={replay} onClose={() => setReplay(null)} />}
+      {runId && <ReplayDrawer runId={runId} member={member} index={replay} onClose={() => setReplay(null)} />}
     </ReportScope>
   );
 }

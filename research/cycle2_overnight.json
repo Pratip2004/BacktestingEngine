@@ -1,0 +1,185 @@
+{
+ "defaults": {
+  "stage": "A",
+  "source": "lead",
+  "capital": 100000,
+  "periods": [
+   {
+    "key": "is",
+    "label": "In-sample Jan\u2013Jun 2026",
+    "role": "in_sample",
+    "from": "2026-01-01",
+    "to": "2026-06-30"
+   },
+   {
+    "key": "stress",
+    "label": "In-sample, 2\u00d7 slippage",
+    "role": "stress",
+    "from": "2026-01-01",
+    "to": "2026-06-30",
+    "cost_overrides": {
+     "slippage_points": 1.0
+    }
+   }
+  ],
+  "priority": 5
+ },
+ "experiments": [
+  {
+   "name": "Overnight iron fly \u00b1400, 15:20 \u2192 next day 09:20",
+   "family": "volatility-short-overnight",
+   "parent_id": "E0002",
+   "hypothesis": "Option sellers earn the variance premium overnight: an ATM iron fly sold at 15:20 and bought back at 09:20 next trading day makes money after costs.",
+   "mechanism": "Muravyev & Ni (2020, J. Financial Economics) 'Why do option returns change sign from day to night?': delta-hedged index option returns are negative overnight and positive intraday. Cycle 1 matched the intraday half (long straddle gross \u2248 +, short fly gross \u2212). Overnight the straddle decays for ~18h (more over weekends) while only the opening gap is realised; intraday buyers then bid options back up.",
+   "novelty": "Same structure as the rejected intraday fly (E0002), opposite half of the clock. Prediction made before seeing results: gross positive.",
+   "failure_modes": "Rejected if IS net \u2264 0 or PF < 1.15, if a few gap days dominate (ex-top-5 \u2264 0), or if the stress run turns negative.",
+   "criteria": {
+    "min_trades": 100
+   },
+   "spec": {
+    "name": "Overnight iron fly \u00b1400",
+    "underlying": "NIFTY",
+    "timeframe": "1m",
+    "schedule": {
+     "entry": {
+      "type": "time",
+      "time": "15:20",
+      "prev_day": true
+     }
+    },
+    "position": {
+     "legs": [
+      {
+       "id": "sell_ce",
+       "action": "sell",
+       "instrument": "CE",
+       "strike": {
+        "by": "atm_offset",
+        "value": 0
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      },
+      {
+       "id": "sell_pe",
+       "action": "sell",
+       "instrument": "PE",
+       "strike": {
+        "by": "atm_offset",
+        "value": 0
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      },
+      {
+       "id": "buy_ce",
+       "action": "buy",
+       "instrument": "CE",
+       "strike": {
+        "by": "atm_offset",
+        "value": 8
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      },
+      {
+       "id": "buy_pe",
+       "action": "buy",
+       "instrument": "PE",
+       "strike": {
+        "by": "atm_offset",
+        "value": -8
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      }
+     ]
+    },
+    "exits": {
+     "square_off": "09:20"
+    },
+    "costs": {
+     "brokerage_per_order": 20,
+     "slippage_points": 0.5,
+     "taxes": true
+    }
+   }
+  },
+  {
+   "name": "Overnight long ATM straddle (control)",
+   "family": "volatility-long-overnight",
+   "parent_id": "E0001",
+   "hypothesis": "Control for the overnight-fly hypothesis: if sellers earn overnight, the overnight long straddle must lose gross.",
+   "mechanism": "Muravyev & Ni (2020, J. Financial Economics) 'Why do option returns change sign from day to night?': delta-hedged index option returns are negative overnight and positive intraday. Cycle 1 matched the intraday half (long straddle gross \u2248 +, short fly gross \u2212).",
+   "novelty": "Mirror of the overnight fly's core; same strikes so the data is shared.",
+   "failure_modes": "If this is profitable gross, the day/night mechanism is not what drives cycle-1 results.",
+   "criteria": {
+    "min_trades": 100
+   },
+   "spec": {
+    "name": "Overnight long straddle",
+    "underlying": "NIFTY",
+    "timeframe": "1m",
+    "schedule": {
+     "entry": {
+      "type": "time",
+      "time": "15:20",
+      "prev_day": true
+     }
+    },
+    "position": {
+     "legs": [
+      {
+       "id": "ce",
+       "action": "buy",
+       "instrument": "CE",
+       "strike": {
+        "by": "atm_offset",
+        "value": 0
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      },
+      {
+       "id": "pe",
+       "action": "buy",
+       "instrument": "PE",
+       "strike": {
+        "by": "atm_offset",
+        "value": 0
+       },
+       "expiry": {
+        "by": "weekly",
+        "n": 0
+       },
+       "lots": 1
+      }
+     ]
+    },
+    "exits": {
+     "square_off": "09:20"
+    },
+    "costs": {
+     "brokerage_per_order": 20,
+     "slippage_points": 0.5,
+     "taxes": true
+    }
+   }
+  }
+ ]
+}

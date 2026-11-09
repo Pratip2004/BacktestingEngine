@@ -37,17 +37,26 @@ CALLS_PER_MINUTE = 92
 
 # ---------- planning ----------
 
-def _monthly(expiries: list[date]) -> list[date]:
-    """The last expiry of each month = the monthly contract (futures and monthly options)."""
+NEXT_FUT_DAYS = 10  # sessions before a monthly expiry that also get the next month's future
+
+def _monthly(expiries: list[date], stock_code: str = "NIFTY") -> list[date]:
+    """The last expiry of each month = the monthly contract (futures and monthly options). An expiry moved back
+    across a month end by a holiday belongs to its nominal month: the 1 May 2025 weekly, expiring 30 Apr, isn't
+    April's monthly (24 Apr is)."""
+    from app.options.expiries import expiry_weekday
     last: dict[tuple[int, int], date] = {}
     for e in expiries:
-        last[(e.year, e.month)] = max(last.get((e.year, e.month), e), e)
+        nominal = next((e + timedelta(days=k) for k in range(7)
+                        if (e + timedelta(days=k)).weekday() == expiry_weekday(e + timedelta(days=k), stock_code)), e)
+        key = (nominal.year, nominal.month)
+        last[key] = max(last.get(key, e), e)
     return sorted(last.values())
 
 
 def plan_backfill(underlyings: list[str], start: date, end: date, band: int | None = None,
                   expiries_ahead: int | None = None, include_monthly: bool | None = None,
-                  include_futures: bool = True, priority: int = 0, dry_run: bool = True, label: str = "") -> dict:
+                  include_futures: bool = True, priority: int = 0, dry_run: bool = True, label: str = "",
+                  include_options: bool = True) -> dict:
     st = get_store()
     cfg = st.settings()
     band = cfg["strike_band"] if band is None else band
@@ -70,7 +79,7 @@ def plan_backfill(underlyings: list[str], start: date, end: date, band: int | No
         opens = dict(zip(daily["day"], daily["open"]))
         days = sorted(d for d in opens if start <= d <= end)
         weekly = weekly_expiries_between(start, end + timedelta(days=45), days, u.stock_code)
-        monthly = _monthly(weekly)
+        monthly = _monthly(weekly, u.stock_code)
 
         # Every contract-day this range needs.
         needed: dict[tuple, list[date]] = defaultdict(list)  # (kind, expiry, strike, right) -> days
@@ -79,6 +88,13 @@ def plan_backfill(underlyings: list[str], start: date, end: date, band: int | No
             month_exp = next((e for e in monthly if e >= d), None)
             if include_futures and month_exp:
                 needed[("fut", month_exp, NO_STRIKE, NO_RIGHT)].append(d)
+                # and the next month's in the last NEXT_FUT_DAYS sessions before expiry, so multi-day trades can
+                # pick a contract that outlives the hold (ExpirySel.min_days) without fetching on demand
+                next_exp = next((e for e in monthly if e > month_exp), None)
+                if next_exp and sum(1 for x in days if d < x <= month_exp) < NEXT_FUT_DAYS:
+                    needed[("fut", next_exp, NO_STRIKE, NO_RIGHT)].append(d)
+            if not include_options:  # spot (+ futures) only, e.g. long history for multi-day strategies
+                continue
             exps = [e for e in weekly if e >= d][:expiries_ahead]
             if include_monthly and month_exp and month_exp not in exps:
                 exps.append(month_exp)

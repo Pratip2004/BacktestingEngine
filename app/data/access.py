@@ -10,11 +10,14 @@ from datetime import date, datetime, time
 
 import pandas as pd
 
+from fastapi import HTTPException
+
 from app.breeze_client import breeze, to_breeze_date
 from app.data.instruments import underlying
-from app.data.store import DONE, NO_EXPIRY, get_store
+from app.data.store import DONE, NO_EXPIRY, OFFLINE, get_store
 
 DAYS_PER_CALL = 2  # 1-minute candles: ~375 a day, Breeze returns up to 1000 per call
+HARD_DAILY_CAP = 4800  # Breeze allows ~5000 calls/day; backtests stop fetching beyond this (the downloader has its own budget)
 PRICE_COLS = ["open", "high", "low", "close"]
 
 
@@ -83,6 +86,9 @@ def store_range(kind: str, name: str, days: list[date], rows: list[dict],
     return n
 
 
+OFFLINE_MISSING: list[dict] = []  # contract-days an offline screen needed but the snapshot lacks
+
+
 def _ensure(kind: str, name: str, days: list[date], **key) -> None:
     st = get_store()
     log_key = {} if kind == "spot" else {"expiry": key["expiry"]}
@@ -90,6 +96,12 @@ def _ensure(kind: str, name: str, days: list[date], **key) -> None:
         log_key |= {"strike": key["strike"], "right": key["right"]}
     done = st.done_days(kind, name, days, **log_key)
     for chunk in chunk_days(sorted(d for d in days if d not in done)):
+        if OFFLINE:  # screens: missing data reads as no candles (the engine skips the trade); counted, never fetched
+            OFFLINE_MISSING.append({"kind": kind, "name": name, **{k: str(v) for k, v in key.items()},
+                                    "from": str(chunk[0]), "to": str(chunk[-1])})
+            continue
+        # if st.calls_on() >= HARD_DAILY_CAP:
+        #     raise HTTPException(429, f"Breeze daily call cap ({HARD_DAILY_CAP}) reached; missing data can be fetched tomorrow")
         rows = fetch_range(kind, name, chunk[0], chunk[-1], **key)
         store_range(kind, name, chunk, rows, **key)
 

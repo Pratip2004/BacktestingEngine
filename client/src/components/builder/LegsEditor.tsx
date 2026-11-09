@@ -1,4 +1,4 @@
-import { Button, Checkbox, Dropdown, Input, InputNumber, Popover, Segmented, Select, Tag, Typography } from "antd";
+import { Button, Checkbox, Dropdown, Input, InputNumber, Popover, Segmented, Select, Tag, Tooltip, Typography } from "antd";
 import { DeleteOutlined, PlusOutlined, AppstoreAddOutlined, SettingOutlined } from "@ant-design/icons";
 import { LEG_PRESETS, STRIKE_BY, newLeg, type T_Leg } from "../../lib/spec";
 import LevelInput from "./LevelInput";
@@ -33,7 +33,7 @@ function LegExits({ leg, onChange }: { leg: T_Leg; onChange: (l: T_Leg) => void 
   );
 }
 
-function LegRow({ leg, onChange, onRemove }: { leg: T_Leg; onChange: (l: T_Leg) => void; onRemove: () => void }) {
+function LegRow({ leg, onChange, onRemove, swing }: { leg: T_Leg; onChange: (l: T_Leg) => void; onRemove: () => void; swing?: boolean }) {
   const fut = leg.instrument === "FUT";
   const unit = STRIKE_BY.find((s) => s.value === leg.strike.by)?.unit;
   return (
@@ -67,6 +67,12 @@ function LegRow({ leg, onChange, onRemove }: { leg: T_Leg; onChange: (l: T_Leg) 
             Skip expiry day
           </Checkbox>
         )}
+        {(swing || !!leg.expiry.min_days) && (
+          <Tooltip title="Only expiries at least this many trading days after entry, so a multi-day trade needn't be rolled.">
+            <InputNumber size="small" className="!w-28" min={0} max={40} value={leg.expiry.min_days ?? 0} addonBefore="≥" addonAfter="days"
+              onChange={(v) => onChange({ ...leg, expiry: { ...leg.expiry, min_days: v ?? 0 } })} />
+          </Tooltip>
+        )}
         <InputNumber size="small" className="!w-24" min={1} max={100} value={leg.lots} addonAfter="lots" onChange={(v) => v !== null && onChange({ ...leg, lots: v })} />
       </div>
       <div className="flex items-center gap-1 justify-end">
@@ -81,7 +87,7 @@ function LegRow({ leg, onChange, onRemove }: { leg: T_Leg; onChange: (l: T_Leg) 
   );
 }
 
-export default function LegsEditor({ legs, onChange }: { legs: T_Leg[]; onChange: (legs: T_Leg[]) => void }) {
+export default function LegsEditor({ legs, onChange, swing }: { legs: T_Leg[]; onChange: (legs: T_Leg[]) => void; swing?: boolean }) {
   return (
     <div className="space-y-2">
       <div className="hidden xl:grid grid-cols-[minmax(80px,110px)_150px_90px_1fr_auto] gap-2 px-3">
@@ -90,7 +96,7 @@ export default function LegsEditor({ legs, onChange }: { legs: T_Leg[]; onChange
         ))}
       </div>
       {legs.map((leg, i) => (
-        <LegRow key={i} leg={leg} onChange={(l) => onChange(legs.map((x, j) => (j === i ? l : x)))} onRemove={() => onChange(legs.filter((_, j) => j !== i))} />
+        <LegRow key={i} leg={leg} swing={swing} onChange={(l) => onChange(legs.map((x, j) => (j === i ? l : x)))} onRemove={() => onChange(legs.filter((_, j) => j !== i))} />
       ))}
       <div className="flex gap-2 pt-1">
         <Button icon={<PlusOutlined />} onClick={() => onChange([...legs, newLeg(legs)])}>Add leg</Button>

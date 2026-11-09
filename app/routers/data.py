@@ -58,6 +58,7 @@ class BackfillIn(BaseModel):
     expiries_ahead: int | None = Field(None, ge=1, le=4)
     include_monthly: bool | None = None
     include_futures: bool = True
+    include_options: bool = True  # False: spot (+ futures) only, a few hundred calls per year of history
     dry_run: bool = True
 
 
@@ -69,7 +70,8 @@ def backfill(body: BackfillIn):
     if not breeze.is_connected:
         raise HTTPException(401, "Log in to Breeze first: planning needs each day's open to choose strikes")
     return plan_backfill(body.underlyings, body.start, body.end, body.band, body.expiries_ahead,
-                         body.include_monthly, body.include_futures, dry_run=body.dry_run)
+                         body.include_monthly, body.include_futures, dry_run=body.dry_run,
+                         include_options=body.include_options)
 
 
 class SettingsIn(BaseModel):
@@ -80,6 +82,8 @@ class SettingsIn(BaseModel):
     include_monthly: bool | None = None
     nightly_enabled: bool | None = None
     nightly_time: str | None = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    short_margin_pct: float | None = Field(None, gt=0, le=50)
+    fut_margin_pct: float | None = Field(None, gt=0, le=50)
 
 
 @router.patch("/settings")

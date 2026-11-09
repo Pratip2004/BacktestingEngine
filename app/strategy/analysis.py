@@ -27,18 +27,26 @@ METRICS = ("net_pnl", "win_rate", "profit_factor", "sharpe", "max_drawdown", "tr
 
 # ---------- replay ----------
 
-def replay(run_id: str, index: int) -> dict:
+def replay(run_id: str, index: int, member: str | None = None) -> dict:
+    """member: a portfolio run's member id (its own trade list)."""
     run = runs.get(run_id)
-    if run["strategy"] != "custom":
-        raise HTTPException(422, "Trade replay is available for strategy-builder runs")
-    trades = run["result"]["trades"]
+    if run["strategy"] == "portfolio":
+        result = run["result"].get("member_results", {}).get(member or "")
+        if not result or "trades" not in result:
+            raise HTTPException(404, "No such member in this portfolio run")
+    elif run["strategy"] == "custom":
+        result = run["result"]
+    else:
+        raise HTTPException(422, "Trade replay is available for strategy-builder and portfolio runs")
+    trades = result["trades"]
     if not 0 <= index < len(trades):
         raise HTTPException(404, "No such trade in this run")
     t = trades[index]
-    u = get_underlying(run["result"]["params"]["spec"]["underlying"])
+    u = get_underlying(result["params"]["spec"]["underlying"])
     entry_at = pd.Timestamp(t["entry_at"])
     exit_at = pd.Timestamp(t["exit_at"])
-    days = sorted({entry_at.date(), exit_at.date()})
+    # Every day the trade was held (multi-day trades list them in daily_mtm), else entry and exit day.
+    days = sorted({date.fromisoformat(m["d"]) for m in t.get("daily_mtm") or []} | {entry_at.date(), exit_at.date()})
     start, end = entry_at - pd.Timedelta(minutes=20), exit_at + pd.Timedelta(minutes=20)
 
     def window(df: pd.DataFrame) -> pd.DataFrame:

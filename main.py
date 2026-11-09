@@ -7,7 +7,8 @@ from fastapi import FastAPI
 from app.breeze_client import breeze
 from app.config import get_settings
 from app.data.ingest import start_background
-from app.routers import account, auth, backtest, data, market, options, runs, strategies
+from app.research import runner as research_runner
+from app.routers import account, auth, backtest, data, market, options, portfolios, research, runs, strategies
 
 logging.basicConfig(level=logging.INFO)
 
@@ -18,6 +19,7 @@ async def lifespan(app: FastAPI):
     # (the server answers immediately and shows "logged out" until the restore finishes).
     threading.Thread(target=breeze.try_restore, name="breeze-restore", daemon=True).start()
     start_background()  # local data store: import old caches, downloader, nightly job
+    research_runner.start()  # research ledger: re-queue interrupted experiments, run the queue
     yield
 
 
@@ -30,6 +32,8 @@ app.include_router(options.router)
 app.include_router(runs.router)
 app.include_router(data.router)
 app.include_router(strategies.router)
+app.include_router(research.router)
+app.include_router(portfolios.router)
 
 
 @app.get("/")
